@@ -16,6 +16,8 @@
   <img src="https://img.shields.io/badge/languages-de%20%C2%B7%20tr%20%C2%B7%20en%20%C2%B7%20fr%20%C2%B7%20bg%20%C2%B7%20ru%20%C2%B7%20uk-7C8CFF.svg" alt="7 languages">
 </p>
 
+> Sister project: **[Noxis OS](https://github.com/Real3rr0r303YT/NoxisOS)** – the same OPSEC idea as hardened Android (LineageOS + KernelSU), with every piece of hardware working.
+
 > ⚠️ **Alpha.** The rootfs, OPSEC layer, display manager and kernel build are tested; the first boot on the 3a is not.
 > Test with `fastboot boot` first – do not flash.
 
