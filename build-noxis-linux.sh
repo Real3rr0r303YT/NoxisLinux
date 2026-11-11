@@ -133,8 +133,19 @@ cmd_check() {
   done
   command -v img2simg >/dev/null 2>&1 && echo "  ✓ img2simg" || echo "  – img2simg (optional, for fastboot sparse)"
   if [ "$(uname -m)" != aarch64 ]; then
-    if [ -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then echo "  ✓ qemu-aarch64 binfmt"
-    else echo "  ✗ qemu-aarch64 binfmt (for the arm64 chroot on x86)"; miss=1; fi
+    # binfmt_misc is a host-wide setting; inside a container the directory may
+    # not be mounted even though the registration is active. Test for real by
+    # running an arm64 binary (arch-test / qemu) instead of only looking at
+    # /proc/sys/fs/binfmt_misc.
+    if [ -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+      echo "  ✓ qemu-aarch64 binfmt"
+    elif command -v arch-test >/dev/null 2>&1 && arch-test arm64 >/dev/null 2>&1; then
+      echo "  ✓ qemu-aarch64 binfmt (via arch-test)"
+    elif [ -f /.dockerenv ] && command -v qemu-aarch64-static >/dev/null 2>&1; then
+      echo "  ✓ qemu-aarch64 binfmt (qemu-user-static present in container)"
+    else
+      echo "  ✗ qemu-aarch64 binfmt (for the arm64 chroot on x86)"; miss=1
+    fi
   fi
   [ "$miss" = 0 ] && { c "All set."; return 0; }
   cat <<'EOF'
