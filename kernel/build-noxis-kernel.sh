@@ -40,6 +40,7 @@ die()  { printf '\033[31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 WLAN_PLATFORM_OPTS="CONFIG_CNSS_OUT_OF_TREE=y CONFIG_CNSS2=m CONFIG_ICNSS2=m CONFIG_CNSS2_QMI=y CONFIG_ICNSS2_QMI=y \
 CONFIG_CNSS_QMI_SVC=m CONFIG_CNSS_PLAT_IPC_QMI_SVC=m CONFIG_CNSS_GENL=m CONFIG_WCNSS_MEM_PRE_ALLOC=m CONFIG_CNSS_UTILS=m"
 WLAN_CLD_OPTS="MODNAME=qca_cld3_qca6750 WLAN_PROFILE=volcano_gki_qca6750 CONFIG_QCA_CLD_WLAN=m \
+CONFIG_CNSS_OUT_OF_TREE=y \
 CONFIG_QCA_WIFI_ISOC=0 CONFIG_QCA_WIFI_2_0=1 WLAN_COMMON_ROOT=cmn WLAN_COMMON_INC=@P/cmn WLAN_FW_API=@V/wlan/fw-api \
 WLAN_PLATFORM_INC=@V/wlan/platform/inc"
 EXT_MODULES=(
@@ -54,7 +55,7 @@ EXT_MODULES=(
   "touch-drivers|TOUCH_ROOT|"
   "wlan/platform|WLAN_PLATFORM_ROOT|$WLAN_PLATFORM_OPTS"
   "wlan/qcacld-3.0|WLAN_ROOT|$WLAN_CLD_OPTS"
-  "datarmnet/core|RMNET_CORE_ROOT|"
+  "datarmnet/core|RMNET_CORE_ROOT|CONFIG_RMNET_LA_PLATFORM=y"
   "datarmnet-ext/mem|RMNET_MEM_ROOT|"
   "dataipa|DATAIPA_ROOT|"
   "bt-kernel|BT_ROOT|CONFIG_MSM_BT_POWER=m CONFIG_BTFM_SLIM=m"
@@ -139,6 +140,18 @@ cmd_build() {
   build_external
 }
 
+# The mm-drivers Kbuilds expect their ROOT to point at mm-drivers/ itself, with
+# a trailing slash: they use both $(ROOT)/config/kalamammdrivers.conf and
+# $(ROOT)hw_fence/include/. Passing the module path made them look for
+# hw_fence/config/, which does not exist, and took graphics-kernel down with
+# them for the missing symbols.
+root_for() {
+  case "$1" in
+    mm-drivers/*) printf '%s/mm-drivers/' "$2" ;;
+    *)            printf '%s' "$3" ;;
+  esac
+}
+
 build_external() {
   local syms="" entry dir var extra path ok=() fail=() vend="$SRC/vendor/qcom/opensource"
   for entry in "${EXT_MODULES[@]}"; do
@@ -148,7 +161,8 @@ build_external() {
     extra="${extra//@P/$path}"; extra="${extra//@V/$vend}"
     c "External module: $dir"
     # shellcheck disable=SC2086  # extra = several make variables
-    if make -C "$SRC" "${MAKEARGS[@]}" -j"$JOBS" M="$path" KERNEL_SRC="$SRC" TOP="$KWORK" "$var=$path" $extra \
+    if make -C "$SRC" "${MAKEARGS[@]}" -j"$JOBS" M="$path" KERNEL_SRC="$SRC" TOP="$KWORK" \
+         "$var=$(root_for "$dir" "$vend" "$path")" $extra \
          KBUILD_EXTRA_SYMBOLS="$syms" modules >>"$KWORK/build-ext.log" 2>&1; then
       ok+=("$dir"); [ -f "$path/Module.symvers" ] && syms="$syms $path/Module.symvers"
     else
@@ -171,7 +185,8 @@ cmd_install() {
     extra="${extra//@P/$path}"; extra="${extra//@V/$SRC/vendor/qcom/opensource}"
     local var; var=$(printf '%s\n' "${EXT_MODULES[@]}" | awk -F'|' -v d="$dir" '$1 == d {print $2}')
     # shellcheck disable=SC2086
-    make -s -C "$SRC" "${MAKEARGS[@]}" M="$path" KERNEL_SRC="$SRC" TOP="$KWORK" "$var=$path" $extra \
+    make -s -C "$SRC" "${MAKEARGS[@]}" M="$path" KERNEL_SRC="$SRC" TOP="$KWORK" \
+      "$var=$(root_for "$dir" "$SRC/vendor/qcom/opensource" "$path")" $extra \
       INSTALL_MOD_PATH="$STAGE" INSTALL_MOD_STRIP=1 INSTALL_MOD_DIR=extra modules_install || warn "Installing $dir failed"
   done < "$KWORK/ext-ok"
   KREL=$(cat "$O/include/config/kernel.release")
