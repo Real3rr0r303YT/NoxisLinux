@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pakettest der Noxis-Firewall in isolierten Netz-Namespaces (ändert nichts am Host-Netz).
+# Packet test of the Noxis firewall in isolated network namespaces (does not touch the host network).
 # Braucht: root, iproute2, nftables, python3.     sudo ./test/test_firewall.sh
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,7 +25,7 @@ ip -n $P link set wg0-mullvad up
 ip -n $P route add 10.64.0.0/16 dev wg0-mullvad
 ip netns exec $N sysctl -qw net.ipv4.ip_forward=1
 
-# "Internet": Server im Netz-Namespace
+# "internet": server in the network namespace
 ip netns exec $N python3 -c '
 import socket,threading
 def tcp():
@@ -45,30 +45,30 @@ SSHD=$!
 sleep 0.5; rm -f /tmp/nx-udp-recv
 
 tcp_from_phone() { ip netns exec $P python3 -c 'import socket; socket.create_connection(("10.9.0.1",8080),timeout=2)'; }
-ok "ohne Firewall: Verbindung ins Netz geht (Kontrolle)" tcp_from_phone
+ok "without firewall: connection works (control)" tcp_from_phone
 
-ip netns exec $P nft -f "$NFT" || { echo "Regelwerk lädt nicht"; exit 1; }
-ok "Regelwerk geladen" "ip netns exec $P nft list table inet noxis"
+ip netns exec $P nft -f "$NFT" || { echo "ruleset does not load"; exit 1; }
+ok "ruleset loaded" "ip netns exec $P nft list table inet noxis"
 
-no "ausgehend TCP am Tunnel vorbei blockiert" tcp_from_phone
-no "DNS-over-TLS (9.9.9.9:853) am Tunnel vorbei blockiert" \
+no "outbound TCP outside the tunnel blocked" tcp_from_phone
+no "DNS-over-TLS (9.9.9.9:853) outside the tunnel blocked" \
    "ip netns exec $P python3 -c 'import socket; socket.create_connection((\"9.9.9.9\",853),timeout=2)'"
-ok "UDP in den Tunnel (wg0-mullvad) erlaubt" \
+ok "UDP into the tunnel (wg0-mullvad) allowed" \
    "ip netns exec $P python3 -c 'import socket; socket.socket(socket.AF_INET,socket.SOCK_DGRAM).sendto(b\"x\",(\"10.64.0.1\",51820))'"
 ip netns exec $P python3 -c '
 import socket
 s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.setsockopt(socket.SOL_SOCKET,36,0x6d6f6c65)
 s.sendto(b"mullvad-relay",("10.9.0.1",9999))' 2>/dev/null; sleep 0.5
-ok "Mullvad-Relay-Verkehr (fwmark 0x6d6f6c65) erlaubt" "grep -q mullvad-relay /tmp/nx-udp-recv"
+ok "Mullvad relay traffic (fwmark 0x6d6f6c65) allowed" "grep -q mullvad-relay /tmp/nx-udp-recv"
 ip netns exec $P python3 -c '
 import socket
 s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.sendto(b"leak",("10.9.0.1",9999))' 2>/dev/null; sleep 0.5
-no "UDP ohne Mullvad-Markierung kommt nicht an" "grep -q leak /tmp/nx-udp-recv"
-no "eingehend: SSH-Port aus dem Netz nicht erreichbar" \
+no "UDP without the Mullvad mark does not arrive" "grep -q leak /tmp/nx-udp-recv"
+no "inbound: SSH port unreachable from the network" \
    "ip netns exec $N python3 -c 'import socket; socket.create_connection((\"10.9.0.2\",22),timeout=2)'"
-no "eingehend: Ping wird verworfen" "ip netns exec $N ping -c1 -W1 10.9.0.2"
-ok "lokal (loopback) funktioniert" "ip netns exec $P python3 -c 'import socket; socket.create_connection((\"127.0.0.1\",22),timeout=2)'"
+no "inbound: ping dropped" "ip netns exec $N ping -c1 -W1 10.9.0.2"
+ok "local (loopback) works" "ip netns exec $P python3 -c 'import socket; socket.create_connection((\"127.0.0.1\",22),timeout=2)'"
 
 kill $SRV $SSHD 2>/dev/null; rm -f /tmp/nx-udp-recv
-echo; echo "$pass bestanden, $fail fehlgeschlagen"
+echo; echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

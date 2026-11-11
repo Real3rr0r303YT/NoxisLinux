@@ -1,6 +1,6 @@
 #!/usr/bin/python3
-"""Noxis Desktop-Modus: externer Bildschirm → großer Desktop, Bildschirmtastatur aus.
-Läuft in der Phosh-Sitzung (XDG-Autostart), nutzt wlr-randr + gsettings."""
+"""Noxis desktop mode: external display → large desktop, on-screen keyboard off.
+Runs in the Phosh session (XDG autostart), uses wlr-randr + gsettings."""
 import configparser
 import json
 import os
@@ -18,10 +18,10 @@ def load_conf(paths=None):
     cp.read(paths or CONF_PATHS)
     s = cp["dock"] if cp.has_section("dock") else {}
     return {
-        "internal": s.get("internal", "on"),          # on | off  (Phone-Display im Desktop-Modus)
+        "internal": s.get("internal", "on"),          # on | off  (phone display in desktop mode)
         "position": s.get("position", "right"),        # right | left | above
         "scale": float(s.get("scale", "1.0")),
-        "osk": s.get("osk", "off"),                    # Bildschirmtastatur im Desktop-Modus
+        "osk": s.get("osk", "off"),                    # on-screen keyboard in desktop mode
         "interval": float(s.get("interval", "2")),
     }
 
@@ -61,7 +61,7 @@ def logical_size(o):
 
 
 def plan(outs, conf, desktop_forced=False):
-    """Liefert (docked, [wlr-randr-Argumente]) für den Zielzustand."""
+    """Returns (docked, [wlr-randr arguments]) for the target state."""
     internal = [o for o in outs if is_internal(o)]
     external = [o for o in outs if not is_internal(o)]
     args = []
@@ -86,7 +86,7 @@ def plan(outs, conf, desktop_forced=False):
         else:
             ext_pos, int_pos = f"{iw},0", "0,0"
         args = ext_args + ["--pos", ext_pos, "--output", intl["name"], "--on", "--pos", int_pos]
-    for o in external[1:]:  # weitere externe Bildschirme nur anschalten
+    for o in external[1:]:  # further external displays: just switch them on
         args += ["--output", o["name"], "--on"]
     return True, args
 
@@ -129,12 +129,12 @@ class Dock:
                 self.saved_osk = gget(*OSK)
             if self.conf["osk"] == "off":
                 gset(*OSK, "false")
-            log("Desktop-Modus an")
+            log("desktop mode on")
         else:
             if self.saved_osk is not None:
                 gset(*OSK, self.saved_osk)
                 self.saved_osk = None
-            log("Mobil-Modus")
+            log("mobile mode")
 
 
 def log(msg):
@@ -148,7 +148,7 @@ def main():
         try:
             d.step()
         except (subprocess.SubprocessError, ValueError, KeyError) as e:
-            log(f"Fehler: {e}")
+            log(f"error: {e}")
         time.sleep(conf["interval"])
 
 

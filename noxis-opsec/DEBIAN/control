@@ -7,8 +7,8 @@ Priority: optional
 Depends: nftables, systemd-resolved, network-manager, usbguard, python3, python3-gi, squeekboard, mullvad-vpn
 Recommends: firefox-esr, waydroid
 Conflicts: phosh-osk-stevia, phosh-osk-stub
-Description: Noxis Linux – OPSEC-Schicht
- Firewall (eingehend dicht, ausgehend nur Mullvad-Tunnel), Mullvad
- Always-on + Killswitch, Quad9 über DNS-over-TLS, USB-Sperre im
- gesperrten Zustand, Tastatur ohne Vorhersage mit RAM-only-Daten,
- flüchtige Protokolle, Kernel-Härtung, zufällige MAC-Adressen.
+Description: Noxis Linux – OPSEC layer
+ Firewall (inbound closed, outbound only via the Mullvad tunnel), Mullvad
+ always-on + killswitch, Quad9 over DNS-over-TLS, USB lock while the
+ screen is locked, keyboard without prediction and RAM-only data,
+ volatile logs, kernel hardening, random MAC addresses.

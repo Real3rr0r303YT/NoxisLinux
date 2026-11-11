@@ -5,150 +5,168 @@
 <h1 align="center">Noxis Linux</h1>
 
 <p align="center">
-  OPSEC-gehärtetes Mobile Linux – Debian trixie (arm64) + Phosh, eigener Display-Manager, eigener Kernel-Build<br>
-  Zielgerät: <b>Nothing Phone (3a)</b> – <code>asteroids</code>, Snapdragon 7s Gen 3 (SM7635), Adreno 810
+  OPSEC-hardened mobile Linux – Debian trixie (arm64) + Phosh, its own display manager and kernel build<br>
+  Target device: <b>Nothing Phone (3a)</b> – <code>asteroids</code>, Snapdragon 7s Gen 3 (SM7635), Adreno 810
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/Lizenz-GPL--3.0-blue.svg" alt="GPL-3.0"></a>
-  <a href="https://buymeacoffee.com/3rr0r303YT"><img src="https://img.shields.io/badge/Spenden-Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
-  <img src="https://img.shields.io/badge/Status-Alpha-orange.svg" alt="Alpha">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="GPL-3.0"></a>
+  <a href="https://buymeacoffee.com/3rr0r303YT"><img src="https://img.shields.io/badge/donate-Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
+  <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Alpha">
+  <img src="https://img.shields.io/badge/languages-de%20%C2%B7%20tr%20%C2%B7%20en%20%C2%B7%20fr%20%C2%B7%20bg%20%C2%B7%20ru%20%C2%B7%20uk-7C8CFF.svg" alt="7 languages">
 </p>
 
-> ⚠️ **Alpha.** Rootfs, OPSEC-Schicht, Display-Manager und Kernel-Build sind getestet, der erste Boot auf dem 3a noch nicht.
-> Erst mit `fastboot boot` testen, nicht flashen.
+> ⚠️ **Alpha.** The rootfs, OPSEC layer, display manager and kernel build are tested; the first boot on the 3a is not.
+> Test with `fastboot boot` first – do not flash.
 
-| Login (noxis-dm + Greeter) | Startbildschirm |
-|---|---|
-| <img src="docs/img/greeter.png" width="260"> | <img src="docs/img/bootlogo.png" width="260"> |
+<p align="center"><img src="docs/img/flow.png" alt="First boot: language → time zone → login" width="820"></p>
+<p align="center"><sub>First boot: language → time zone → login (renderings of the GTK4 greeter)</sub></p>
 
-## Funktionen
+## Features
 
-- **Eigener Display-Manager `noxis-dm`** – PAM + logind, Greeter als eigener Systemnutzer, PIN-Feld bei jedem Start neu gemischt, Sperre nach Fehlversuchen
-- **Desktop-Modus** – externer Bildschirm → Desktop-Anordnung, Bildschirmtastatur aus
-- **Firewall-Killswitch** – eingehend dicht, ausgehend nur über Mullvad (WireGuard)
-- **DNS** – Quad9 über DNS-over-TLS, kein Fallback
-- **USB-Sperre** – gesperrter Bildschirm → keine neuen USB-Geräte, kein USB-Datenmodus
-- **Tastatur** – keine Wortvorhersage, Lerndaten nur im RAM
-- **Browser** – Tor Browser (aarch64, GPG-geprüft), Firefox mit arkenfox
-- **Kernel** – aus den offiziellen Nothing-Quellen, mit Yama, Landlock, ohne User-Namespaces/kexec
-- **Builds** – `git --depth=1`, Signaturprüfung, SHA-256, automatisches Aufräumen
+- **Own display manager `noxis-dm`** – PAM + logind, greeter runs as its own system user, PIN pad reshuffled on every start, lockout after failed attempts
+- **7 languages** – Deutsch, Türkçe, English, Français, Български, Русский, Українська – chosen at build time or on the phone at first boot
+- **Accurate time zone** – detected offline from the mobile network (MCC via ModemManager, no location services, no internet lookup), the build machine, or the language; full searchable list as fallback
+- **Icons everywhere** – status row (VPN, network, battery), session chips (mobile / desktop), keypad and power buttons
+- **Desktop mode** – external display → desktop layout, on-screen keyboard off
+- **Firewall killswitch** – inbound closed, outbound only through Mullvad (WireGuard)
+- **DNS** – Quad9 over DNS-over-TLS, no fallback
+- **USB lock** – locked screen → no new USB devices, no USB data mode
+- **Keyboard** – no word prediction, learning data in RAM only
+- **Browsers** – Tor Browser (aarch64, GPG-verified), Firefox with arkenfox
+- **Kernel** – from the official Nothing sources, with Yama and Landlock, without user namespaces/kexec
+- **Builds** – `git --depth=1`, signature checks, SHA-256, automatic cleanup
 
-## Schnellstart
+## Quick start
 
 ```bash
-./build-noxis-linux.sh check
-./build-noxis-linux.sh all            # → ~/Desktop/noxis-linux/{rootfs.img,rootfs-sparse.img,SHA256SUMS}
-# Gentoo / ohne Debian-Werkzeuge:
-./build-noxis-linux.sh container
-# Kernel aus den Nothing-Quellen (vorher, optional):
-sudo ./build-noxis-linux.sh kernel     # → ~/Desktop/noxis-linux/{boot.img,device/*.deb}
-sudo ./build-noxis-linux.sh container  # nimmt device/*.deb automatisch ins Rootfs
+git clone --depth=1 https://github.com/Real3rr0r303YT/NoxisLinux
+cd NoxisLinux
+sudo ./build-noxis-linux.sh kernel      # kernel from the Nothing sources → ~/Desktop/noxis-linux/{boot.img,device/*.deb}
+sudo ./build-noxis-linux.sh container   # rootfs in Docker; asks for language + time zone, picks up device/*.deb
 ```
 
-Optionen: `NOXIS_USER=noxis NOXIS_PIN=147147 NOXIS_DEVICE_DEBS=<ordner> BOOT_IMG=<datei>`
+On a Debian/Ubuntu host without Docker: `./build-noxis-linux.sh check` then `./build-noxis-linux.sh all`.
+
+### Language and time zone
+
+The build asks once:
+
+```
+  Language / Sprache / Dil / Langue / Език / Язык / Мова
+    1) Deutsch
+    2) Türkçe
+    3) English
+    4) Français
+    5) Български
+    6) Русский
+    7) Українська
+    0) ask on the phone at first boot
+  > 2
+  Time zone [Europe/Istanbul]:
+```
+
+The suggested time zone is your build machine's (`timedatectl`, `/etc/timezone` or `/etc/localtime` – works on OpenRC/Gentoo too), otherwise the language default. Without a terminal, or with `0`, the phone asks at first boot and suggests the zone from the SIM's mobile network.
+
+Non-interactive:
+
+```bash
+NOXIS_LANG=tr NOXIS_TZ=Europe/Istanbul sudo -E ./build-noxis-linux.sh container
+NOXIS_LANG=ask sudo -E ./build-noxis-linux.sh container      # choose on the phone
+```
+
+Other options: `NOXIS_USER=noxis NOXIS_PIN=147147 NOXIS_DEVICE_DEBS=<folder> BOOT_IMG=<file>`
 
 ## 1. Roadmap
 
-| Phase | Inhalt | Stand |
+| Phase | Content | Status |
 |---|---|---|
-| 1 | OPSEC-Schicht `noxis-opsec` (Firewall, Mullvad, DNS, USB, Tastatur, Härtung) | **fertig, getestet** |
-| 2 | Rootfs-Build: Debian trixie arm64, Phosh + noxis-dm, Tor, Firefox+arkenfox, Waydroid | **fertig, Ablauf getestet** |
-| 3 | Image: `rootfs.img` (ext4) + Sparse, SHA-256, Auto-Cleanup | **fertig, getestet** |
-| 4 | Kernel aus `NothingOSS/android_kernel_msm-6.1_nothing_sm7635` + eigene Module + Initramfs → `boot.img` | **Skript fertig, Config getestet, Build ungetestet** |
-| 5 | Erster Boot: UFS, USB-Debug-Netz, systemd | wartet auf Test am Gerät |
-| 6 | Anzeige/Touch/GPU über Qualcomm-Treiber (msm_drm, kgsl, focaltech) unter Phosh | offen |
-| 7 | WLAN (qcacld-3.0), Modem, Audio, Kamera | offen |
+| 1 | OPSEC layer `noxis-opsec` (firewall, Mullvad, DNS, USB, keyboard, hardening) | **done, tested** |
+| 2 | Rootfs build: Debian trixie arm64, Phosh + noxis-dm, Tor, Firefox + arkenfox, Waydroid | **done, flow tested** |
+| 3 | Image: `rootfs.img` (ext4) + sparse, SHA-256, auto-cleanup | **done, tested** |
+| 4 | Kernel from `NothingOSS/android_kernel_msm-6.1_nothing_sm7635` + own modules + initramfs → `boot.img` | **script done, config tested, build untested** |
+| 5 | First boot: UFS, USB debug network, systemd | waiting for a device test |
+| 6 | Display/touch/GPU via Qualcomm drivers (msm_drm, kgsl, focaltech) under Phosh | open |
+| 7 | Wi-Fi (qcacld-3.0), modem, audio, camera | open |
 
-**Warum blockiert:** Droidian (Halium/libhybris) unterstützt Vendor-Partitionen bis Android 13 (api33).
-Das 3a läuft mit Android-15-Vendor + GKI-Kernel – dafür gibt es noch keinen Halium-Port.
-Mainline-Linux kann auf dem 3a bisher nur Framebuffer, Taschenlampe und Debug-UART.
-Sobald es einen Kernel gibt: `NOXIS_DEVICE_DEBS=<ordner mit linux-bootimage-*.deb + adaptation-*.deb> ./build-noxis-linux.sh all`.
+**Why it is hard:** Droidian (Halium/libhybris) supports vendor partitions up to Android 13 (api33); the 3a ships an Android 15 vendor with a GKI kernel.
+Mainline Linux on the 3a currently supports only framebuffer, flash LED and debug UART – hence the own kernel build from the Nothing sources.
 
-## 2. Paket-Matrix
+## 2. Package matrix
 
-| Bereich | Paket | Quelle | Prüfung |
+| Area | Package | Source | Verification |
 |---|---|---|---|
-| Oberfläche | `phosh-core`, `cage`, `gir1.2-gtk-4.0`, `noxis-shell` (noxis-dm) | Debian + Noxis | apt-Signatur |
-| Tastatur | `squeekboard` (keine Wortvorhersage) | Debian | apt |
-| Tastatur-Konflikt | `phosh-osk-stevia`, `phosh-osk-stub` (Vorhersage) | – | per `Conflicts` ausgeschlossen |
-| Netzwerk | `network-manager`, `modemmanager`, `wpasupplicant`, `bluez` | Debian | apt |
+| UI | `phosh-core`, `cage`, `gir1.2-gtk-4.0`, `noxis-shell` (noxis-dm) | Debian + Noxis | apt signature |
+| Keyboard | `squeekboard` (no word prediction) | Debian | apt |
+| Keyboard conflict | `phosh-osk-stevia`, `phosh-osk-stub` (prediction) | – | excluded via `Conflicts` |
+| Network | `network-manager`, `modemmanager`, `wpasupplicant`, `bluez` | Debian | apt |
 | Firewall | `nftables` + `/etc/noxis/firewall.nft` | Debian + Noxis | `nft -c` |
-| VPN | `mullvad-vpn` | repository.mullvad.net (arm64) | Schlüssel-Fingerabdruck `A119 8702 … 66DE 8DDF` |
+| VPN | `mullvad-vpn` | repository.mullvad.net (arm64) | key fingerprint `A119 8702 … 66DE 8DDF` |
 | DNS | `systemd-resolved` (Quad9 DoT) | Debian | – |
-| USB | `usbguard` + `noxis-usblock` | Debian + Noxis | D-Bus-Test |
+| USB | `usbguard` + `noxis-usblock` | Debian + Noxis | D-Bus test |
 | Browser | `firefox-esr` + arkenfox (`defaults/pref`) | Debian + GitHub `--depth=1` | – |
-| Mobile-Firefox | `mobile-config-firefox` | Debian (optional) | apt |
-| Anonym | Tor Browser Linux aarch64 (16.x) → `/opt/tor-browser` | dist.torproject.org | GPG `EF6E 286D … 9329 8290` |
+| Mobile Firefox | `mobile-config-firefox` | Debian (optional) | apt |
+| Anonymity | Tor Browser Linux aarch64 → `/opt/tor-browser` | dist.torproject.org | GPG `EF6E 286D … 9329 8290` |
 | Isolation | `waydroid` | Debian (optional) | apt |
-| Telefonie | `gnome-calls`, `chatty` | Debian | apt |
-| Entfernt | `openssh-server`, Autologin, Coredumps | – | – |
+| Telephony | `gnome-calls`, `chatty` | Debian | apt |
+| Locales | de_DE, tr_TR, en_US, fr_FR, bg_BG, ru_RU, uk_UA (UTF-8) | Debian `locales` | – |
+| Removed | `openssh-server`, autologin, core dumps | – | – |
 
-## 3. systemd-Units (`noxis-opsec`)
+## 3. systemd units (`noxis-opsec`)
 
-| Unit | Aufgabe |
+| Unit | Job |
 |---|---|
-| `noxis-firewall.service` | lädt `/etc/noxis/firewall.nft` vor `network-pre.target` |
-| `noxis-mullvad-setup.service` | `lockdown-mode on`, `auto-connect on`, `lan block`, DNS Quad9 im Tunnel |
-| `noxis-mullvad-setup.timer` | prüft den Killswitch alle 5 min, setzt ihn neu |
-| `noxis-usblock.service` | gesperrt → USBGuard blockiert neue Geräte + USB-Gadget getrennt (Laden bleibt) |
-| `mullvad-early-boot-blocking.service` | Mullvad blockiert schon vor dem Netzstart |
+| `noxis-firewall.service` | loads `/etc/noxis/firewall.nft` before `network-pre.target` |
+| `noxis-mullvad-setup.service` | `lockdown-mode on`, `auto-connect on`, `lan block`, Quad9 DNS inside the tunnel |
+| `noxis-mullvad-setup.timer` | re-checks the killswitch every 5 min |
+| `noxis-usblock.service` | locked → USBGuard blocks new devices + USB gadget detached (charging keeps working) |
+| `mullvad-early-boot-blocking.service` | Mullvad blocks traffic before the network starts |
 
 ### Firewall (`/etc/noxis/firewall.nft`)
 
-* **eingehend:** `policy drop` – nur loopback, Antworten, DHCP, IPv6-Nachbarschaft, Waydroid-DNS/DHCP
-* **ausgehend:** `policy drop` – nur `wg0-mullvad`, Mullvads eigener Verbindungsaufbau (`fwmark 0x6d6f6c65`), DHCP, IPv6-ND
-* **weiterleiten:** Waydroid nur in den Tunnel
-* läuft **zusätzlich** zu Mullvads eigener Killswitch-Tabelle
+* **inbound:** `policy drop` – only loopback, replies, DHCP, IPv6 neighbour discovery, Waydroid DNS/DHCP
+* **outbound:** `policy drop` – only `wg0-mullvad`, Mullvad's own connection setup (`fwmark 0x6d6f6c65`), DHCP, IPv6 ND
+* **forward:** Waydroid only into the tunnel
+* runs **in addition** to Mullvad's own killswitch table
 
-### Weitere Härtung
+### More hardening
 
-| Datei | Wirkung |
+| File | Effect |
 |---|---|
-| `resolved.conf.d/90-noxis.conf` | Quad9 nur über DoT, kein Fallback, kein LLMNR/mDNS |
-| `journald.conf.d/90-noxis.conf` | Protokolle nur im RAM |
-| `coredump.conf.d/90-noxis.conf` | keine Speicherabbilder |
-| `sysctl.d/90-noxis.conf` | kptr/dmesg restrict, BPF/kexec/ptrace aus, IPv6-Privacy, kein Ping |
-| `NetworkManager/conf.d/90-noxis.conf` | Zufalls-MAC, kein Hostname an DHCP, keine Konnektivitätsprüfung |
-| `user-tmpfiles.d/noxis-osk.conf` | Squeekboard-/Presage-Daten → `/run/user/UID` (tmpfs) |
+| `resolved.conf.d/90-noxis.conf` | Quad9 over DoT only, no fallback, no LLMNR/mDNS |
+| `journald.conf.d/90-noxis.conf` | logs in RAM only |
+| `coredump.conf.d/90-noxis.conf` | no core dumps |
+| `sysctl.d/90-noxis.conf` | kptr/dmesg restrict, BPF/kexec/ptrace off, IPv6 privacy, no ping |
+| `NetworkManager/conf.d/90-noxis.conf` | random MAC, no hostname to DHCP, no connectivity check |
+| `user-tmpfiles.d/noxis-osk.conf` | Squeekboard/Presage data → `/run/user/UID` (tmpfs) |
 
-## 4. Tests
+## 4. Kernel (`kernel/`)
 
-```bash
-sudo ./test/test_firewall.sh                      # Pakettest in Netz-Namespaces (auf deinem PC)
-dbus-run-session -- python3 test/test_usblock.py  # USB-Sperre über echten D-Bus (8 Tests)
-sudo ./test/test_build.sh <arkenfox/user.js>      # Build-Ablauf, echte GPG-/ext4-Prüfung (25 Tests)
-```
-
-
-
-## Kernel (`kernel/`)
-
-| Datei | Zweck |
+| File | Purpose |
 |---|---|
-| `build-noxis-kernel.sh` | klont Nothing-Kernel (`--depth=1`), Config, baut Image.gz + In-Tree- + externe Module (Display, GPU, Touch, Fences, SecureMSM), Initramfs, `boot.img` (Header v4), `.deb`-Pakete |
-| `noxis.config` | systemd-Bedarf (devtmpfs, fhandle, SysV-IPC, autofs), nftables, USB-NCM, Härtung (Yama, Landlock, kein userns/kexec), kein LTO/BTF |
-| `initramfs/init` | lädt First-Stage-Module, findet `userdata`, mountet `modem`/`dsp` des aktiven Slots, `switch_root` → systemd |
-| `modules/` | Ladelisten + Blocklist aus dem 3a-Gerätebaum |
+| `build-noxis-kernel.sh` | clones the Nothing kernel (`--depth=1`), config, builds Image.gz + in-tree + external modules (display, GPU, touch, fences, SecureMSM), initramfs, `boot.img` (header v4), `.deb` packages |
+| `noxis.config` | systemd needs (devtmpfs, fhandle, SysV IPC, autofs), nftables, USB NCM, hardening (Yama, Landlock, no userns/kexec), no LTO/BTF |
+| `initramfs/init` | loads first-stage modules, finds `userdata`, mounts `modem`/`dsp` of the active slot, `switch_root` → systemd |
+| `modules/` | load lists + blocklist from the 3a device tree |
 
-**Erst testen, nicht flashen** (Telefon im Bootloader, `fastboot` am PC):
+**Test first, do not flash** (phone in bootloader, `fastboot` on the PC):
 
 ```bash
 fastboot getvar current-slot
-fastboot boot ~/Desktop/noxis-linux/boot.img            # einmalig, nichts wird überschrieben
+fastboot boot ~/Desktop/noxis-linux/boot.img            # one-off, nothing is overwritten
 ```
 
-Debug-Modus (USB-Netz + Shell, ohne Rootfs):
+Debug mode (USB network + shell, without rootfs):
 
 ```bash
 NOXIS_CMDLINE="console=tty0 noxis.debug=1" sudo -E ./build-noxis-linux.sh kernel
 fastboot boot ~/Desktop/noxis-linux/boot.img
-sudo ip addr add 172.16.42.2/24 dev usb0   # Name des USB-Netzes am PC prüfen: ip link
+sudo ip addr add 172.16.42.2/24 dev usb0   # check the interface name on the PC: ip link
 telnet 172.16.42.1
 dmesg | tail -50; ls /sys/class/udc /dev/dri
 ```
 
-Flashen (löscht Android-Daten; zurück nur mit Nothing-Firmware):
+Flashing (wipes Android data; going back needs the Nothing firmware):
 
 ```bash
 fastboot flash boot boot.img
@@ -156,52 +174,48 @@ fastboot flash userdata rootfs-sparse.img
 fastboot reboot
 ```
 
-Firmware für WLAN/Modem/GPU (vorher unter Android): `adb pull /vendor/firmware ~/noxis-fw`, dann
-`NOXIS_FIRMWARE=~/noxis-fw sudo -E ./build-noxis-linux.sh kernel` – das Paket nur lokal nutzen.
+Firmware for Wi-Fi/modem/GPU (from Android beforehand): `adb pull /vendor/firmware ~/noxis-fw`, then
+`NOXIS_FIRMWARE=~/noxis-fw sudo -E ./build-noxis-linux.sh kernel` – keep that package local.
 
-## Oberfläche (`noxis-shell`)
+## 5. Shell (`noxis-shell`)
 
-| Teil | Datei | Funktion |
+| Part | File | Function |
 |---|---|---|
-| Display-Manager | `/usr/lib/noxis/dm/noxis-dm` | eigener DM: startet Greeter als `noxis-greeter` (PAM-Klasse greeter), prüft PIN per PAM (`/etc/pam.d/noxis`), startet Phosh als Benutzer (logind, Rechteabgabe, umask 077), nach Abmelden zurück zum Greeter; nur erlaubte Sitzungen, Greeter darf keine `LD_PRELOAD` & Co. setzen |
-| Anmeldung | `/usr/lib/noxis/greeter/noxis-greeter` | cage + GTK4, spricht das greetd-Protokoll mit noxis-dm: Uhr, Logo, PIN-Feld **neu gemischt** bei jedem Start/Fehlversuch, ab 4 Fehlern 30 s → max. 15 min Sperre, Modus Mobil/Desktop, Neustart/Aus |
-| Desktop-Modus | `/usr/lib/noxis/noxis-dock` | externer Bildschirm erkannt → anschalten, anordnen, Bildschirmtastatur aus; abgesteckt → alles zurück |
-| Branding | `/usr/share/noxis/branding/*.svg` | Logo, Wortmarke, App-Icon, Hintergründe hoch/quer |
-| Startbildschirm | `/usr/share/plymouth/themes/noxis` | Plymouth: pulsierendes Logo, PIN-Abfrage für Verschlüsselung |
+| Display manager | `/usr/lib/noxis/dm/noxis-dm` | starts the greeter as `noxis-greeter` (PAM class greeter), checks the PIN via PAM (`/etc/pam.d/noxis`), starts Phosh as the user (logind, dropped privileges, umask 077), back to the greeter after logout; only allowed sessions, the greeter cannot inject `LD_PRELOAD` & co. |
+| First-boot setup | `/usr/lib/noxis/dm/setup.py` | language (7) + time zone; writes locale, `/etc/localtime`, keyboard layout (console + Phosh); only allowed while unconfigured |
+| Greeter | `/usr/lib/noxis/greeter/noxis-greeter` | cage + GTK4, speaks the greetd protocol with noxis-dm: status icons, clock, logo, PIN pad **reshuffled** on every start/failure, lockout 30 s → max 15 min from the 4th failure, mobile/desktop session with icons, restart/power off |
+| Desktop mode | `/usr/lib/noxis/noxis-dock` | external display detected → switch on, arrange, on-screen keyboard off; unplugged → everything back |
+| Branding | `/usr/share/noxis/branding/*.svg` | logo, wordmark, app icon, portrait/landscape wallpapers |
+| Boot splash | `/usr/share/plymouth/themes/noxis` | Plymouth: Noxis OS emblem, pulsing, PIN prompt for encryption |
 
-Einstellungen: `/etc/noxis/dm.conf` (VT, Greeter-Befehl, erlaubte Sitzungen) · `/etc/noxis/greeter.conf` (Benutzer, Mischen, PIN-Länge für Auto-Login-Taste) · `/etc/noxis/dock.conf` (Phone-Display an/aus, Position, Skalierung).
+Settings: `/etc/noxis/dm.conf` (VT, greeter command, allowed sessions) · `/etc/noxis/greeter.conf` (user, shuffling, PIN length for auto-submit) · `/etc/noxis/dock.conf` (phone display on/off, position, scale).
 
-**Bildschirm am 3a:** USB-C nur 2.0, **kein DisplayPort** → USB-C-HDMI-Adapter liefern kein Bild.
-Wege: DisplayLink-Adapter (eigener Grafikchip über USB, braucht `evdi` + DisplayLink-Treiber, ungetestet) oder Miracast über WLAN (`gnome-network-displays`, nur Spiegeln).
-Auf Geräten mit Videoausgang (z. B. PinePhone mit Dock, Librem 5) springt der Desktop-Modus direkt an.
+**External display on the 3a:** USB-C 2.0 only, **no DisplayPort** → USB-C-to-HDMI adapters show nothing.
+Options: a DisplayLink adapter (own graphics chip over USB, needs `evdi` + the DisplayLink driver, untested) or Miracast over Wi-Fi (`gnome-network-displays`, mirroring only).
+On devices with video out (e.g. PinePhone with dock, Librem 5) desktop mode kicks in directly.
 
-```bash
-python3 test/test_shell.py      # 71 Tests: Protokoll, PIN, Sperre, Bildschirmerkennung, Anordnung, Branding, Paket
-sudo python3 test/test_dm.py    # 26 Tests: noxis-dm mit echtem PAM, fork, Rechteabgabe, Sitzungsumgebung
-```
-
-
-## Alle Tests
+## 6. Tests
 
 ```bash
-./test/test_kernel.sh <nothing-kernel-quellen>       # 33
-sudo ./test/test_build.sh <arkenfox/user.js>         # 25
-python3 test/test_shell.py                           # 71
-sudo python3 test/test_dm.py                         # 26
-dbus-run-session -- python3 test/test_usblock.py     # 8
-sudo ./test/test_firewall.sh                         # Pakettest in Netz-Namespaces
+./test/test_kernel.sh <nothing-kernel-sources>       # 33  config fragment, module lists, initramfs, packages
+sudo ./test/test_build.sh <arkenfox/user.js>         # 25  build flow, real GPG/ext4 checks, safe cleanup
+python3 test/test_shell.py                           # 78  protocol, PIN, lockout, displays, status icons, branding
+sudo python3 test/test_dm.py                         # 26  noxis-dm with real PAM, fork, privilege drop
+python3 test/test_locale.py                          # 73  7 languages, MCC → time zone, setup, build prompt
+dbus-run-session -- python3 test/test_usblock.py     # 8   USB lock over a real D-Bus
+sudo ./test/test_firewall.sh                         #     packet test in network namespaces
 ```
 
-## Unterstützen
+## Support
 
-Wenn dir Noxis Linux gefällt, kannst du die Entwicklung unterstützen:
+If you like Noxis Linux, you can support its development:
 
 <a href="https://buymeacoffee.com/3rr0r303YT"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-3rr0r303YT-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
 
-## Lizenz
+## License
 
-Noxis Linux ist freie Software unter der **GNU General Public License v3.0** – siehe [LICENSE](LICENSE).
-Du darfst es nutzen, verändern und weitergeben, solange abgeleitete Werke ebenfalls unter der GPL-3.0 stehen und der Quellcode verfügbar bleibt.
+Noxis Linux is free software under the **GNU General Public License v3.0** – see [LICENSE](LICENSE).
+You may use, modify and share it, as long as derived works are also licensed under the GPL-3.0 and the source code stays available.
 
 ```
 Noxis Linux – Copyright (C) 2026 3rr0r (Real3rr0r303YT)
@@ -209,5 +223,5 @@ This program comes with ABSOLUTELY NO WARRANTY. This is free software, and you a
 welcome to redistribute it under the conditions of the GNU GPL v3 or later.
 ```
 
-Fremdkomponenten behalten ihre Lizenzen: Nothing-Kernel (GPL-2.0), Modullisten aus dem LineageOS-Gerätebaum (Apache-2.0), arkenfox (MIT), Tor Browser und Mullvad (eigene Lizenzen, werden beim Build geladen, nicht mitgeliefert).
-Firmware-Blobs aus `/vendor/firmware` sind proprietär und gehören **nicht** ins Repository.
+Third-party components keep their licenses: the Nothing kernel (GPL-2.0), module lists from the LineageOS device tree (Apache-2.0), arkenfox (MIT), Tor Browser and Mullvad (own licenses; downloaded during the build, not shipped).
+Firmware blobs from `/vendor/firmware` are proprietary and do **not** belong in this repository.

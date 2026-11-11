@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=Noxis
-Description=Noxis Linux Startbildschirm
+Description=Noxis Linux boot splash
 ModuleName=script
 
 [script]

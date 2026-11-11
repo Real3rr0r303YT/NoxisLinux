@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integrationstest für usblock.py: privater D-Bus + nachgebautes logind + Fake-Gadget/USBGuard.
+"""Integration test for usblock.py: private D-Bus + mock logind + fake gadget/USBGuard.
 Start:  dbus-run-session -- python3 test/test_usblock.py   (braucht python3-gi)"""
 import os
 import subprocess
@@ -94,27 +94,27 @@ def last_ug():
     return open(ug_log).read().strip().splitlines()[-1] if os.path.exists(ug_log) else ""
 
 
-check("Start gesperrt: USBGuard blockiert neue Geräte", last_ug() == "set-parameter ImplicitPolicyTarget block")
-check("Start gesperrt: Gadget getrennt (Laden bleibt)", udc() == "")
+check("boot locked: USBGuard blocks new devices", last_ug() == "set-parameter ImplicitPolicyTarget block")
+check("boot locked: gadget detached (charging stays)", udc() == "")
 set_lock(USER, False)
-check("Entsperrt: USBGuard erlaubt", last_ug() == "set-parameter ImplicitPolicyTarget allow")
-check("Entsperrt: Gadget wieder verbunden", udc() == "a600000.dwc3")
+check("unlocked: USBGuard allows", last_ug() == "set-parameter ImplicitPolicyTarget allow")
+check("unlocked: gadget reconnected", udc() == "a600000.dwc3")
 set_lock(USER, True)
-check("Wieder gesperrt: blockiert + getrennt", last_ug().endswith("block") and udc() == "")
+check("locked again: blocked + detached", last_ug().endswith("block") and udc() == "")
 n = len(open(ug_log).read().splitlines())
 set_lock(GREETER, False)
-check("Greeter-Sitzung 'entsperrt' wird ignoriert", udc() == "" and len(open(ug_log).read().splitlines()) == n)
+check("greeter session 'unlocked' is ignored", udc() == "" and len(open(ug_log).read().splitlines()) == n)
 set_lock(USER, False)
 GLib.idle_add(lambda: bus.emit_signal(None, "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "SessionRemoved",
               GLib.Variant("(so)", ("31", USER))) and False)
 del sessions[USER]
 time.sleep(0.8)
-check("Abmelden → wieder gesperrt", last_ug().endswith("block") and udc() == "")
+check("logout → locked again", last_ug().endswith("block") and udc() == "")
 
 proc.terminate()
 out = proc.communicate(timeout=3)[0]
-check("Keine Python-Fehler im Dienst", "Traceback" not in out)
+check("no Python errors in the service", "Traceback" not in out)
 if fails:
     print(out)
-print(f"\n{8 - fails}/8 bestanden")
+print(f"\n{8 - fails}/8 passed")
 sys.exit(1 if fails else 0)

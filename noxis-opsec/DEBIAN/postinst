@@ -2,14 +2,14 @@
 set -e
 UG=/etc/usbguard/usbguard-daemon.conf
 if [ "$1" = configure ]; then
-	# USBGuard: beim Start vorhandene Geräte erlauben, neue nach Sperrzustand
+	# USBGuard: allow devices present at boot, new ones depend on the lock state
 	if [ -f "$UG" ]; then
 		sed -i -e 's/^ImplicitPolicyTarget=.*/ImplicitPolicyTarget=block/' \
 		       -e 's/^PresentDevicePolicy=.*/PresentDevicePolicy=allow/' \
 		       -e 's/^InsertedDevicePolicy=.*/InsertedDevicePolicy=apply-policy/' "$UG"
 		grep -q '^IPCAllowedUsers=' "$UG" || echo 'IPCAllowedUsers=root' >> "$UG"
 	fi
-	# Kein Klartext-DNS über /etc/resolv.conf am resolved vorbei
+	# no plain-text DNS via /etc/resolv.conf bypassing resolved
 	ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload || true

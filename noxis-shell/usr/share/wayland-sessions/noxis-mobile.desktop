@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Noxis Mobil
-Comment=Phosh für Touch
+Comment=Phosh for touch
 Exec=env NOXIS_MODE=mobile phosh-session
 Type=Application
 DesktopNames=Phosh;GNOME;

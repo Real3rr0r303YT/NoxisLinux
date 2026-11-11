@@ -1,5 +1,5 @@
 [Unit]
-Description=Noxis: USB-C-Datenverbindungen sperren, solange das Gerät gesperrt ist
+Description=Noxis: block USB-C data while the device is locked
 After=dbus.service usbguard.service systemd-logind.service
 Wants=usbguard.service
 

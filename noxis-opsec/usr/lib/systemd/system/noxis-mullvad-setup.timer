@@ -1,5 +1,5 @@
 [Unit]
-Description=Noxis: Mullvad-Killswitch alle 5 Minuten prüfen
+Description=Noxis: check the Mullvad killswitch every 5 minutes
 
 [Timer]
 OnBootSec=2min

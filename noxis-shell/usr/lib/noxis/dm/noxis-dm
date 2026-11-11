@@ -1,10 +1,10 @@
 #!/usr/bin/python3
-"""noxis-dm – Display-Manager von Noxis Linux.
+"""noxis-dm – the Noxis Linux display manager.
 
-Ablauf: Greeter als eigener Systemnutzer in eigener PAM-Sitzung (Klasse greeter) starten →
-Greeter spricht das greetd-Protokoll über $GREETD_SOCK → PIN wird per PAM geprüft →
-Greeter beendet sich → Benutzersitzung (Klasse user) mit PAM, logind, Rechteabgabe → nach dem
-Abmelden wieder Greeter."""
+Flow: start the greeter as its own system user in its own PAM session (class greeter) →
+the greeter speaks the greetd protocol over $GREETD_SOCK → PIN is checked via PAM →
+greeter exits → user session (class user) with PAM, logind and dropped privileges →
+back to the greeter after logout. First boot: language + time zone setup (noxis_setup)."""
 import configparser
 import fcntl
 import json
@@ -18,6 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import pam  # noqa: E402
+import setup  # noqa: E402
 
 CONF = os.environ.get("NOXIS_DM_CONF", "/etc/noxis/dm.conf")
 VT_ACTIVATE, VT_WAITACTIVE = 0x5606, 0x5607
@@ -47,7 +48,7 @@ def load_conf(path=None):
     }
 
 
-# ------------------------------------------------------------------ Protokoll
+# ------------------------------------------------------------------ protocol
 def recv_msg(conn):
     hdr = b""
     while len(hdr) < 4:
@@ -57,7 +58,7 @@ def recv_msg(conn):
         hdr += c
     (n,) = struct.unpack("=I", hdr)
     if n > 65536:
-        raise ValueError("Nachricht zu groß")
+        raise ValueError("message too large")
     buf = b""
     while len(buf) < n:
         c = conn.recv(n - len(buf))
@@ -81,14 +82,14 @@ class Cancelled(Exception):
 
 
 class Authenticator:
-    """greetd-Protokoll + PAM. Zustand bleibt über Verbindungen erhalten (wie greetd)."""
+    """greetd protocol + PAM. State survives across connections (like greetd)."""
 
     def __init__(self, conf):
         self.conf = conf
         self.pam = None
         self.user = None
         self.authed = False
-        self.session = None          # (cmd, env) nach start_session
+        self.session = None          # (cmd, env) after start_session
         self.conn = None
 
     def reset(self):
@@ -96,7 +97,7 @@ class Authenticator:
             self.pam.end()
         self.pam, self.user, self.authed, self.session = None, None, False, None
 
-    # PAM-Abfrage → auth_message an den Greeter, nächste Anfrage lesen
+    # PAM prompt → auth_message to the greeter, then read the next request
     def _ask(self, style, text):
         kind = {pam.PAM_PROMPT_ECHO_OFF: "secret", pam.PAM_PROMPT_ECHO_ON: "visible",
                 pam.PAM_ERROR_MSG: "error", pam.PAM_TEXT_INFO: "info"}.get(style, "info")
@@ -123,10 +124,10 @@ class Authenticator:
         t = req.get("type")
         if t == "create_session":
             if self.pam:
-                return err("error", "Es läuft bereits eine Anmeldung")
+                return err("error", "A login is already in progress")
             user = req.get("username")
             if not isinstance(user, str) or not user or "/" in user:
-                return err("error", "Ungültiger Benutzer")
+                return err("error", "Invalid user")
             self.cancelled = False
             stage = "auth"
             try:
@@ -141,25 +142,25 @@ class Authenticator:
                 cancelled = self.cancelled
                 self.reset()
                 if cancelled:
-                    return {"type": "success"}          # Antwort auf cancel_session
-                # jeder Fehler beim Prüfen der PIN gilt als falsche PIN (verrät nichts über Konten)
+                    return {"type": "success"}          # reply to cancel_session
+                # any failure while checking the PIN counts as a wrong PIN (reveals nothing about accounts)
                 if stage == "auth" or e.code in AUTH_FAIL or e.code == pam.PAM_CONV_ERR:
-                    return err("auth_error", "Anmeldung fehlgeschlagen")
+                    return err("auth_error", "Authentication failed")
                 if e.code == pam.PAM_NEW_AUTHTOK_REQD:
-                    return err("error", "PIN abgelaufen – am Terminal ändern")
+                    return err("error", "PIN expired – change it on a terminal")
                 return err("error", str(e))
             self.authed = True
             return {"type": "success"}
         if t == "post_auth_message_response":
-            return err("error", "Keine offene Abfrage")
+            return err("error", "No pending prompt")
         if t == "start_session":
             if not self.authed:
-                return err("error", "Nicht angemeldet")
+                return err("error", "Not authenticated")
             cmd = req.get("cmd")
             if not (isinstance(cmd, list) and cmd and all(isinstance(c, str) for c in cmd)):
-                return err("error", "Ungültiger Befehl")
+                return err("error", "Invalid command")
             if os.path.basename(cmd[0]) not in self.conf["sessions"]:
-                return err("error", f"Sitzung nicht erlaubt: {cmd[0]}")
+                return err("error", f"Session not allowed: {cmd[0]}")
             env = {}
             for kv in req.get("env") or []:
                 if isinstance(kv, str) and "=" in kv:
@@ -171,10 +172,26 @@ class Authenticator:
         if t == "cancel_session":
             self.reset()
             return {"type": "success"}
-        return err("error", "Unbekannte Anfrage")
+        if t == "noxis_setup_info":
+            lang = req.get("lang") if req.get("lang") in setup.LANGS else "en"
+            root = self.conf.get("setup_root", "/")
+            tz, source, zones = setup.suggest(lang, setup.detect_mcc(), root)
+            return {"type": "noxis_setup_info", "needed": not setup.is_done(root), "suggested": tz,
+                    "source": source, "zones": zones, "all_zones": setup.all_zones(root)}
+        if t == "noxis_setup":
+            root = self.conf.get("setup_root", "/")
+            if setup.is_done(root):          # after first boot: change only when logged in (Settings)
+                return err("error", "Setup already done")
+            try:
+                setup.apply(req.get("lang"), req.get("timezone"), root, compile_schemas=(root == "/"))
+            except (ValueError, OSError) as e:
+                return err("error", str(e))
+            log(f"setup: lang={req.get('lang')} tz={req.get('timezone')}")
+            return {"type": "success"}
+        return err("error", "Unknown request")
 
 
-# ------------------------------------------------------------------ Prozesse
+# ------------------------------------------------------------------ processes
 def activate_vt(vt):
     if not vt:
         return
@@ -186,7 +203,7 @@ def activate_vt(vt):
         finally:
             os.close(fd)
     except OSError as e:
-        log(f"VT {vt} nicht aktivierbar: {e}")
+        log(f"cannot activate VT {vt}: {e}")
 
 
 def base_env(pw, conf, cls):
@@ -202,7 +219,7 @@ def base_env(pw, conf, cls):
 
 
 def spawn(pw, argv, env, vt):
-    """Kind: neue Sitzung, VT als Terminal, Rechte abgeben, exec."""
+    """Child: new session, VT as controlling terminal, drop privileges, exec."""
     pid = os.fork()
     if pid:
         return pid
@@ -226,7 +243,7 @@ def spawn(pw, argv, env, vt):
         os.umask(0o077)
         os.execvpe(argv[0], argv, env)
     except Exception as e:  # noqa: BLE001
-        print(f"noxis-dm: Start fehlgeschlagen: {e}", file=sys.stderr, flush=True)
+        print(f"noxis-dm: exec failed: {e}", file=sys.stderr, flush=True)
     os._exit(127)
 
 
@@ -244,7 +261,7 @@ def open_pam_session(p, pw, conf, cls, extra_env=None, establish=True):
 
 
 def wait_child(pid, poll=None):
-    """Auf Kind warten; poll() wird regelmäßig aufgerufen (für den Greeter-Socket)."""
+    """Wait for the child; poll() is called regularly (for the greeter socket)."""
     while True:
         try:
             done, status = os.waitpid(pid, os.WNOHANG)
@@ -265,7 +282,7 @@ class DM:
         self.children = set()
 
     def run_greeter(self):
-        """Greeter starten und bedienen. Rückgabe: True, wenn eine Benutzersitzung bereitsteht."""
+        """Start and serve the greeter. Returns True when a user session is ready."""
         conf = self.conf
         gpw = pwd.getpwnam(conf["greeter_user"])
         os.makedirs(conf["run_dir"], mode=0o755, exist_ok=True)
@@ -299,19 +316,19 @@ class DM:
                 cred = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
                 _pid, uid, _gid = struct.unpack("3i", cred)
                 if uid not in (gpw.pw_uid, 0):
-                    log(f"fremder Socket-Zugriff (uid {uid}) abgewiesen")
+                    log(f"rejected socket access from uid {uid}")
                     conn.close()
                     return
                 try:
                     self.auth.handle(conn)
                 except (OSError, ValueError) as e:
-                    log(f"Greeter-Verbindung: {e}")
+                    log(f"greeter connection: {e}")
                 finally:
                     conn.close()
 
             status = wait_child(pid, poll)
             self.children.discard(pid)
-            log(f"Greeter beendet (Status {status})")
+            log(f"greeter exited (status {status})")
         finally:
             gp.close_session()
             gp.end()
@@ -330,14 +347,14 @@ class DM:
             env = open_pam_session(a.pam, pw, self.conf, "user", extra)
             shell = pw.pw_shell if pw.pw_shell and os.path.exists(pw.pw_shell) else "/bin/sh"
             argv = [shell, "-l", "-c", 'exec "$@"', "noxis-session"] + cmd
-            log(f"Sitzung für {pw.pw_name}: {' '.join(cmd)}")
+            log(f"session for {pw.pw_name}: {' '.join(cmd)}")
             pid = spawn(pw, argv, env, self.conf["vt"])
             self.children.add(pid)
             status = wait_child(pid)
             self.children.discard(pid)
-            log(f"Sitzung beendet (Status {status})")
+            log(f"session ended (status {status})")
         except pam.PamError as e:
-            log(f"Sitzung nicht gestartet: {e}")
+            log(f"session not started: {e}")
         finally:
             if a.pam:
                 a.pam.close_session()
@@ -353,7 +370,7 @@ class DM:
             try:
                 ready = self.run_greeter()
             except (KeyError, OSError, pam.PamError) as e:
-                log(f"Greeter-Fehler: {e}")
+                log(f"greeter error: {e}")
                 ready = False
             if ready:
                 fails.clear()
@@ -363,7 +380,7 @@ class DM:
             now = time.time()
             fails = [t for t in fails if now - t < 60] + [now]
             if len(fails) >= 5:
-                log("Greeter startet wiederholt nicht – 30 s Pause")
+                log("greeter keeps failing – pausing 30 s")
                 time.sleep(30)
                 fails.clear()
             else:
@@ -381,7 +398,7 @@ class DM:
 
 def main():
     if os.geteuid() != 0:
-        log("muss als root laufen")
+        log("must run as root")
         return 1
     dm = DM(load_conf())
     signal.signal(signal.SIGTERM, dm.shutdown)

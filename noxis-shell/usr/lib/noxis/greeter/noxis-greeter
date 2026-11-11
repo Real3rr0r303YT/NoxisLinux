@@ -1,5 +1,7 @@
 #!/usr/bin/python3
-"""Noxis-Greeter: Anmeldebildschirm für greetd (läuft in cage)."""
+"""Noxis greeter: login screen for noxis-dm (runs inside cage).
+First boot: language + time zone wizard. Afterwards: clock, logo, shuffled PIN pad,
+status icons (VPN, network, battery), session choice with icons, restart/power off."""
 import os
 import subprocess
 import sys
@@ -14,18 +16,30 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 import core  # noqa: E402
+import i18n  # noqa: E402
 from greetd_ipc import Greetd, GreetdError  # noqa: E402
 
 BRAND = os.environ.get("NOXIS_BRANDING", "/usr/share/noxis/branding")
 HERE = os.path.dirname(os.path.realpath(__file__))
-WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
-          "August", "September", "Oktober", "November", "Dezember"]
+SESSION_ICONS = {"mobile": "phone-symbolic", "desktop": "video-display-symbolic"}
+
+
+def icon_label(icon, text, css=None):
+    box = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
+    img = Gtk.Image.new_from_icon_name(icon)
+    img.set_pixel_size(18)
+    box.append(img)
+    lbl = Gtk.Label(label=text)
+    box.append(lbl)
+    if css:
+        box.add_css_class(css)
+    return box, lbl
 
 
 class Greeter(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Noxis")
+        self.lang = i18n.lang_from_env()
         self.conf = core.load_conf()
         self.user = core.pick_user(self.conf)
         self.pin = core.PinState()
@@ -33,72 +47,17 @@ class Greeter(Gtk.ApplicationWindow):
         self.locked_until = 0.0
         self.busy = False
         self.mode = core.default_mode()
+        self.setup_data = None
 
-        overlay = Gtk.Overlay()
-        self.set_child(overlay)
-        self.bg = Gtk.Picture()
-        self.bg.set_content_fit(Gtk.ContentFit.COVER)
-        self.bg.set_can_shrink(True)
-        overlay.set_child(self.bg)
+        self.overlay = Gtk.Overlay()
+        self.set_child(self.overlay)
+        self.bg = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
+        self.overlay.set_child(self.bg)
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.overlay.add_overlay(self.stack)
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        root.add_css_class("noxis-root")
-        overlay.add_overlay(root)
-
-        # Kopf: Uhr + Datum
-        self.clock = Gtk.Label(css_classes=["noxis-clock"])
-        self.date = Gtk.Label(css_classes=["noxis-date"])
-        root.append(self.clock)
-        root.append(self.date)
-
-        spacer = Gtk.Box(vexpand=True)
-        root.append(spacer)
-
-        # Logo
-        logo = Gtk.Picture.new_for_filename(os.path.join(BRAND, "noxis-wordmark.svg"))
-        logo.set_content_fit(Gtk.ContentFit.CONTAIN)
-        logo.set_size_request(220, 60)
-        logo.set_halign(Gtk.Align.CENTER)
-        logo.add_css_class("noxis-logo")
-        root.append(logo)
-
-        if self.conf["show_user"] and self.user:
-            root.append(Gtk.Label(label=self.user, css_classes=["noxis-user"]))
-
-        # PIN-Punkte + Meldung
-        self.dots = Gtk.Label(label=" ", css_classes=["noxis-dots"])
-        self.msg = Gtk.Label(label=" ", css_classes=["noxis-msg"])
-        root.append(self.dots)
-        root.append(self.msg)
-
-        # Tastenfeld
-        self.grid = Gtk.Grid(row_spacing=14, column_spacing=22, halign=Gtk.Align.CENTER)
-        self.grid.add_css_class("noxis-keypad")
-        root.append(self.grid)
-        self.build_keypad()
-
-        root.append(Gtk.Box(vexpand=True))
-
-        # Fuß: Modus + Energie
-        foot = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, css_classes=["noxis-foot"])
-        self.mode_btns = {}
-        group = None
-        for key in ("mobile", "desktop"):
-            b = Gtk.ToggleButton(label=core.SESSIONS[key]["label"], css_classes=["noxis-chip"])
-            if group:
-                b.set_group(group)
-            group = group or b
-            b.set_active(key == self.mode)
-            b.connect("toggled", self.on_mode, key)
-            foot.append(b)
-            self.mode_btns[key] = b
-        foot.append(Gtk.Box(hexpand=False, width_request=18))
-        for icon, label, cmd in (("system-reboot-symbolic", "Neustart", "reboot"),
-                                 ("system-shutdown-symbolic", "Ausschalten", "poweroff")):
-            b = Gtk.Button(icon_name=icon, tooltip_text=label, css_classes=["noxis-power"])
-            b.connect("clicked", self.on_power, cmd)
-            foot.append(b)
-        root.append(foot)
+        self.build_login()
+        self.stack.add_named(self.login_page, "login")
 
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_key)
@@ -108,10 +67,83 @@ class Greeter(Gtk.ApplicationWindow):
         self.tick()
         GLib.timeout_add_seconds(1, self.tick)
         GLib.timeout_add_seconds(2, self.poll_outputs)
-        if not self.user:
-            self.show_msg("Kein Benutzer gefunden (/etc/noxis/greeter.conf)")
+        GLib.timeout_add_seconds(5, self.update_status)
+        self.update_status()
+        threading.Thread(target=self.load_setup_info, daemon=True).start()
 
-    # ------------------------------------------------------------- UI
+    # ============================================================ Login
+    def build_login(self):
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["noxis-root"])
+        self.login_page = root
+
+        self.status = Gtk.Box(spacing=14, halign=Gtk.Align.END, css_classes=["noxis-status"])
+        self.st_vpn = Gtk.Image(pixel_size=16)
+        self.st_net = Gtk.Image(pixel_size=16)
+        self.st_bat = Gtk.Image(pixel_size=16)
+        self.st_bat_lbl = Gtk.Label(css_classes=["noxis-status-text"])
+        for w in (self.st_vpn, self.st_net, self.st_bat, self.st_bat_lbl):
+            self.status.append(w)
+        root.append(self.status)
+
+        self.clock = Gtk.Label(css_classes=["noxis-clock"])
+        self.date = Gtk.Label(css_classes=["noxis-date"])
+        root.append(self.clock)
+        root.append(self.date)
+        root.append(Gtk.Box(vexpand=True))
+
+        logo = Gtk.Picture.new_for_filename(os.path.join(BRAND, "noxis-wordmark.svg"))
+        logo.set_content_fit(Gtk.ContentFit.CONTAIN)
+        logo.set_size_request(220, 60)
+        logo.set_halign(Gtk.Align.CENTER)
+        logo.add_css_class("noxis-logo")
+        root.append(logo)
+        if self.conf["show_user"] and self.user:
+            root.append(Gtk.Label(label=self.user, css_classes=["noxis-user"]))
+
+        self.dots = Gtk.Label(label=" ", css_classes=["noxis-dots"])
+        self.msg = Gtk.Label(label=" ", css_classes=["noxis-msg"])
+        root.append(self.dots)
+        root.append(self.msg)
+
+        self.grid = Gtk.Grid(row_spacing=14, column_spacing=22, halign=Gtk.Align.CENTER, css_classes=["noxis-keypad"])
+        root.append(self.grid)
+        self.build_keypad()
+        root.append(Gtk.Box(vexpand=True))
+
+        foot = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, css_classes=["noxis-foot"])
+        self.mode_btns, self.mode_lbls = {}, {}
+        group = None
+        for key in ("mobile", "desktop"):
+            b = Gtk.ToggleButton(css_classes=["noxis-chip"])
+            content, lbl = icon_label(SESSION_ICONS[key], "")
+            b.set_child(content)
+            if group:
+                b.set_group(group)
+            group = group or b
+            b.set_active(key == self.mode)
+            b.connect("toggled", self.on_mode, key)
+            foot.append(b)
+            self.mode_btns[key], self.mode_lbls[key] = b, lbl
+        foot.append(Gtk.Box(width_request=18))
+        self.power_btns = {}
+        for icon, key, cmd in (("system-reboot-symbolic", "reboot", "reboot"),
+                               ("system-shutdown-symbolic", "poweroff", "poweroff")):
+            b = Gtk.Button(icon_name=icon, css_classes=["noxis-power"])
+            b.connect("clicked", self.on_power, cmd)
+            foot.append(b)
+            self.power_btns[key] = b
+        root.append(foot)
+        self.apply_texts()
+
+    def apply_texts(self):
+        for key, lbl in self.mode_lbls.items():
+            lbl.set_label(i18n.tr(self.lang, key))
+        for key, b in self.power_btns.items():
+            b.set_tooltip_text(i18n.tr(self.lang, key))
+        if not self.user:
+            self.show_msg(i18n.tr(self.lang, "no_user"))
+        self.tick()
+
     def build_keypad(self):
         child = self.grid.get_first_child()
         while child:
@@ -119,14 +151,14 @@ class Greeter(Gtk.ApplicationWindow):
             self.grid.remove(child)
             child = nxt
         for i, k in enumerate(core.keypad(self.conf["shuffle"])):
-            b = Gtk.Button(label=k, css_classes=["noxis-key"])
             if k == "⌫":
-                b.add_css_class("noxis-key-side")
+                b = Gtk.Button(icon_name="edit-clear-symbolic", css_classes=["noxis-key", "noxis-key-side"])
                 b.connect("clicked", lambda *_: self.on_back())
             elif k == "✓":
-                b.add_css_class("noxis-key-ok")
+                b = Gtk.Button(icon_name="object-select-symbolic", css_classes=["noxis-key", "noxis-key-ok"])
                 b.connect("clicked", lambda *_: self.submit())
             else:
+                b = Gtk.Button(label=k, css_classes=["noxis-key"])
                 b.connect("clicked", lambda _b, d=k: self.on_digit(d))
             self.grid.attach(b, i % 3, i // 3, 1, 1)
 
@@ -135,6 +167,22 @@ class Greeter(Gtk.ApplicationWindow):
         h = self.get_height() or 2392
         name = "noxis-wallpaper-landscape.svg" if w > h else "noxis-wallpaper-portrait.svg"
         self.bg.set_filename(os.path.join(BRAND, name))
+
+    def update_status(self):
+        st = core.status()
+        self.st_vpn.set_from_icon_name("network-vpn-symbolic" if st["vpn"] else "network-vpn-disabled-symbolic")
+        self.st_vpn.set_tooltip_text(i18n.tr(self.lang, "vpn_on" if st["vpn"] else "vpn_off"))
+        self.st_vpn.set_css_classes(["noxis-ok" if st["vpn"] else "noxis-warn"])
+        self.st_net.set_from_icon_name(st["net_icon"])
+        self.st_net.set_tooltip_text(i18n.tr(self.lang, "network"))
+        if st["battery"] is None:
+            self.st_bat.set_visible(False)
+            self.st_bat_lbl.set_visible(False)
+        else:
+            self.st_bat.set_from_icon_name(st["bat_icon"])
+            self.st_bat_lbl.set_label(f"{st['battery']} %")
+            self.st_bat.set_tooltip_text(i18n.tr(self.lang, "battery"))
+        return True
 
     def refresh_dots(self):
         self.dots.set_label("●  " * len(self.pin) if len(self.pin) else " ")
@@ -145,10 +193,10 @@ class Greeter(Gtk.ApplicationWindow):
     def tick(self):
         t = time.localtime()
         self.clock.set_label(time.strftime("%H:%M", t))
-        self.date.set_label(f"{WEEKDAYS[t.tm_wday]}, {t.tm_mday}. {MONTHS[t.tm_mon - 1]}")
+        self.date.set_label(i18n.date_text(self.lang, t))
         rest = int(self.locked_until - time.time())
         if rest > 0:
-            self.show_msg(f"Zu viele Fehlversuche – {rest} s warten")
+            self.show_msg(i18n.tr(self.lang, "wait", s=rest))
         elif self.locked_until and not self.busy:
             self.locked_until = 0
             self.show_msg(" ")
@@ -158,10 +206,149 @@ class Greeter(Gtk.ApplicationWindow):
         self.update_background()
         want = core.default_mode()
         if want != self.mode and not self.mode_btns[want].get_active():
-            self.mode_btns[want].set_active(True)  # Bildschirm an-/abgesteckt → Modus folgt
+            self.mode_btns[want].set_active(True)
         return True
 
-    # ------------------------------------------------------------- Eingaben
+    # ============================================================ First-boot setup
+    def load_setup_info(self):
+        try:
+            g = Greetd()
+            try:
+                info = g.setup_info(self.lang)
+            finally:
+                g.close()
+        except (GreetdError, OSError):
+            return
+        if info.get("type") == "noxis_setup_info" and info.get("needed"):
+            GLib.idle_add(self.start_setup, info)
+
+    def start_setup(self, info):
+        self.setup_data = info
+        self.stack.add_named(self.build_lang_page(), "lang")
+        self.stack.set_visible_child_name("lang")
+        return False
+
+    def build_lang_page(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, css_classes=["noxis-root", "noxis-setup"])
+        logo = Gtk.Picture.new_for_filename(os.path.join(BRAND, "noxis-mark.svg"))
+        logo.set_size_request(96, 96)
+        logo.set_halign(Gtk.Align.CENTER)
+        page.append(logo)
+        self.lang_title = Gtk.Label(label=i18n.tr(self.lang, "welcome"), css_classes=["noxis-title"])
+        self.lang_sub = Gtk.Label(label=i18n.tr(self.lang, "choose_lang"), css_classes=["noxis-subtitle"])
+        page.append(self.lang_title)
+        page.append(self.lang_sub)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER, vexpand=True)
+        for code in i18n.ORDER:
+            b = Gtk.Button(css_classes=["noxis-list-btn"])
+            row, _ = icon_label("preferences-desktop-locale-symbolic", i18n.LANGS[code][0])
+            b.set_child(row)
+            b.connect("clicked", self.on_lang, code)
+            box.append(b)
+        page.append(box)
+        return page
+
+    def on_lang(self, _b, code):
+        self.lang = code
+        self.apply_texts()
+        threading.Thread(target=self._reload_info, daemon=True).start()
+
+    def _reload_info(self):
+        try:
+            g = Greetd()
+            try:
+                info = g.setup_info(self.lang)
+            finally:
+                g.close()
+        except (GreetdError, OSError):
+            info = self.setup_data
+        GLib.idle_add(self.show_tz_page, info)
+
+    def show_tz_page(self, info):
+        self.setup_data = info
+        old = self.stack.get_child_by_name("tz")
+        if old:
+            self.stack.remove(old)
+        self.stack.add_named(self.build_tz_page(info), "tz")
+        self.stack.set_visible_child_name("tz")
+        return False
+
+    def build_tz_page(self, info):
+        lang = self.lang
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, css_classes=["noxis-root", "noxis-setup"])
+        title, _ = icon_label("preferences-system-time-symbolic", i18n.tr(lang, "timezone"), "noxis-title")
+        page.append(title)
+        self.tz_choice = info.get("suggested") or "UTC"
+        src = {"network": "det_network", "lang": "det_lang"}.get(info.get("source"))
+        sug = Gtk.Button(css_classes=["noxis-list-btn", "noxis-suggested"])
+        sug_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sug_box.append(Gtk.Label(label=self.tz_choice.replace("_", " "), css_classes=["noxis-tz-main"]))
+        if src:
+            sug_box.append(Gtk.Label(label=i18n.tr(lang, src), css_classes=["noxis-tz-src"]))
+        sug.set_child(sug_box)
+        sug.connect("clicked", lambda *_: self.finish_setup(self.tz_choice))
+        page.append(sug)
+
+        search = Gtk.SearchEntry(placeholder_text=i18n.tr(lang, "search"))
+        page.append(search)
+        lst = Gtk.ListBox(css_classes=["noxis-tz-list"], selection_mode=Gtk.SelectionMode.SINGLE)
+        zones = list(dict.fromkeys((info.get("zones") or []) + (info.get("all_zones") or ["UTC"])))
+        for tz in zones:
+            row = Gtk.ListBoxRow()
+            row.tz = tz
+            row.set_child(Gtk.Label(label=tz.replace("_", " "), xalign=0, css_classes=["noxis-tz-row"]))
+            lst.append(row)
+        needle = {"q": ""}
+        lst.set_filter_func(lambda row: needle["q"] in row.tz.lower().replace("_", " "))
+        search.connect("search-changed", lambda e: (needle.__setitem__("q", e.get_text().lower()), lst.invalidate_filter()))
+        lst.connect("row-activated", lambda _l, row: self.finish_setup(row.tz))
+        scroller = Gtk.ScrolledWindow(vexpand=True, child=lst)
+        page.append(scroller)
+
+        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
+        back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
+        back.connect("clicked", lambda *_: self.stack.set_visible_child_name("lang"))
+        nxt = Gtk.Button(label=i18n.tr(lang, "next"), css_classes=["noxis-chip", "noxis-primary"])
+        nxt.connect("clicked", lambda *_: self.finish_setup(self.selected_tz(lst) or self.tz_choice))
+        nav.append(back)
+        nav.append(nxt)
+        page.append(nav)
+        self.setup_msg = Gtk.Label(label=" ", css_classes=["noxis-msg"])
+        page.append(self.setup_msg)
+        return page
+
+    @staticmethod
+    def selected_tz(lst):
+        row = lst.get_selected_row()
+        return getattr(row, "tz", None) if row else None
+
+    def finish_setup(self, tz):
+        self.setup_msg.set_label(i18n.tr(self.lang, "applying"))
+
+        def work():
+            try:
+                g = Greetd()
+                try:
+                    ok, detail = g.setup(self.lang, tz)
+                finally:
+                    g.close()
+            except (GreetdError, OSError) as e:
+                ok, detail = False, str(e)
+            GLib.idle_add(self.setup_done, ok, detail, tz)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def setup_done(self, ok, detail, tz):
+        if not ok:
+            self.setup_msg.set_label(f"{i18n.tr(self.lang, 'setup_fail')}: {detail}")
+            return False
+        os.environ["TZ"] = f":/usr/share/zoneinfo/{tz}"
+        time.tzset()
+        self.apply_texts()
+        self.stack.set_visible_child_name("login")
+        return False
+
+    # ============================================================ Input
     def on_mode(self, btn, key):
         if btn.get_active():
             self.mode = key
@@ -170,7 +357,7 @@ class Greeter(Gtk.ApplicationWindow):
         subprocess.Popen(["systemctl", cmd])
 
     def on_digit(self, d):
-        if self.busy or time.time() < self.locked_until:
+        if self.busy or time.time() < self.locked_until or self.stack.get_visible_child_name() != "login":
             return
         self.pin.add(d)
         self.refresh_dots()
@@ -184,6 +371,8 @@ class Greeter(Gtk.ApplicationWindow):
             self.refresh_dots()
 
     def on_key(self, _ctrl, keyval, _code, _state):
+        if self.stack.get_visible_child_name() != "login":
+            return False
         name = Gdk.keyval_name(keyval) or ""
         if name.startswith("KP_") and name[3:].isdigit():
             name = name[3:]
@@ -200,16 +389,14 @@ class Greeter(Gtk.ApplicationWindow):
             return False
         return True
 
-    # ------------------------------------------------------------- Anmeldung
+    # ============================================================ Login
     def submit(self):
-        if self.busy or not len(self.pin) or not self.user:
-            return
-        if time.time() < self.locked_until:
+        if self.busy or not len(self.pin) or not self.user or time.time() < self.locked_until:
             return
         self.busy = True
         pin = self.pin.take()
         self.refresh_dots()
-        self.show_msg("Prüfe …")
+        self.show_msg(i18n.tr(self.lang, "checking"))
         s = core.SESSIONS[self.mode]
         threading.Thread(target=self._login, args=(pin, s["cmd"], s["env"]), daemon=True).start()
 
@@ -217,14 +404,14 @@ class Greeter(Gtk.ApplicationWindow):
         try:
             g = Greetd()
             try:
-                ok, err = g.login(self.user, pin, cmd, env)
+                ok, code = g.login(self.user, pin, cmd, env)
             finally:
                 g.close()
-        except (GreetdError, OSError) as e:
-            ok, err = False, f"greetd: {e}"
-        GLib.idle_add(self._done, ok, err)
+        except (GreetdError, OSError):
+            ok, code = False, "error"
+        GLib.idle_add(self._done, ok, code)
 
-    def _done(self, ok, err):
+    def _done(self, ok, code):
         self.busy = False
         if ok:
             self.get_application().quit()
@@ -233,9 +420,9 @@ class Greeter(Gtk.ApplicationWindow):
         wait = core.backoff(self.failures)
         if wait:
             self.locked_until = time.time() + wait
-        self.show_msg(err)
+        self.show_msg(i18n.tr(self.lang, code if code in i18n.T else "error"))
         if self.conf["shuffle"]:
-            self.build_keypad()  # nach jedem Fehlversuch neu mischen
+            self.build_keypad()
         return False
 
 

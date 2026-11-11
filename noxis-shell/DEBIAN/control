@@ -8,9 +8,9 @@ Depends: cage, libpam-modules, libpam-runtime, adduser, python3, python3-gi, gir
 Recommends: plymouth, fonts-inter, gnome-network-displays
 Conflicts: phrog
 Provides: x-display-manager
-Description: Noxis Linux – Anmeldung, Branding und Desktop-Modus
- Eigener Display-Manager (noxis-dm, PAM + logind) mit GTK4-Greeter in
- cage, gemischtem PIN-Feld und
- Wartezeit nach Fehlversuchen, Noxis-Logos, Hintergründe und
- Plymouth-Startbildschirm, automatischer Desktop-Modus für externe
- Bildschirme (wlr-randr, Bildschirmtastatur aus).
+Description: Noxis Linux – login, branding and desktop mode
+ Own display manager (noxis-dm, PAM + logind) with a GTK4 greeter in
+ cage: first-boot language/time zone setup (de tr en fr bg ru uk),
+ shuffled PIN pad, lockout after failed attempts, status and session
+ icons. Noxis logos, wallpapers, Plymouth boot splash and automatic
+ desktop mode for external displays (wlr-randr, on-screen keyboard off).

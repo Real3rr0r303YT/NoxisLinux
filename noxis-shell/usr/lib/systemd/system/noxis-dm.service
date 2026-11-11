@@ -15,8 +15,8 @@ IgnoreSIGPIPE=no
 KillMode=mixed
 StandardOutput=journal
 StandardError=journal
-# Keine Namespace-Härtung hier: Benutzersitzungen erben Netz- und Dateisystemsicht des DM.
-# Abgesichert wird über PAM, logind (eigene Sitzung/Scope) und Rechteabgabe vor exec.
+# No namespace sandboxing here: user sessions inherit the network and file system view of the DM.
+# Protection comes from PAM, logind (own session/scope) and dropping privileges before exec.
 
 [Install]
 Alias=display-manager.service

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Ablauftest für build-noxis-linux.sh
-#  - Downloads, git und mmdebstrap sind Attrappen
-#  - GPG-Signaturprüfung, mkfs.ext4, debugfs, e2fsck, sha256sum sind ECHT
-# Braucht: root (für ext4 aus Verzeichnis bei e2fsprogs < 1.47.1), gpg, e2fsprogs
+# Flow test for build-noxis-linux.sh
+#  - downloads, git and mmdebstrap are fakes
+#  - GPG signature checks, mkfs.ext4, debugfs, e2fsck, sha256sum are REAL
+# Needs: root (ext4 from a directory with e2fsprogs < 1.47.1), gpg, e2fsprogs
 #   test/test_build.sh <pfad-zu-arkenfox-user.js>
 set -uo pipefail
 NX="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,7 +12,7 @@ pass=0; fail=0
 ok() { if eval "$2" >/dev/null 2>&1; then echo "PASS $1"; pass=$((pass+1)); else echo "FAIL $1"; fail=$((fail+1)); fi; }
 no() { if eval "$2" >/dev/null 2>&1; then echo "FAIL $1"; fail=$((fail+1)); else echo "PASS $1"; pass=$((pass+1)); fi; }
 
-# ---------- Testschlüssel (echte GPG-Schlüssel, nur für den Test)
+# ---------- test keys (real GPG keys, test only)
 export GNUPGHOME="$W/gpg-test"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
 for who in tor mullvad evil; do
   gpg --batch --quiet --pinentry-mode loopback --passphrase '' --quick-gen-key "$who-test <$who@test>" rsa2048 sign never
@@ -40,7 +40,7 @@ case "\$url" in
   */16.0/tor-browser-linux-aarch64-16.0.tar.xz.asc) src="$FIX/tor-browser-linux-aarch64-16.0.tar.xz.asc" ;;
   *keys.openpgp.org/*) src="$FIX/tor.asc" ;;
   *mullvad-keyring.asc) src="$FIX/\${MULLVAD_KEY:-mullvad}.asc" ;;
-  *) echo "unbekannte URL \$url" >&2; exit 22 ;;
+  *) echo "unknown URL \$url" >&2; exit 22 ;;
 esac
 [ -f "\$src" ] || exit 22
 if [ -n "\$out" ]; then cp "\$src" "\$out"; else cat "\$src"; fi
@@ -57,7 +57,7 @@ case "\$*" in
 esac
 EOF
 
-# mmdebstrap-Attrappe: emuliert, was customize.sh im Chroot tun würde
+# fake mmdebstrap: emulates what customize.sh would do in the chroot
 cat > "$BIN/mmdebstrap" <<'EOF'
 #!/bin/bash
 echo "mmdebstrap $*" >> LOGF
@@ -79,52 +79,52 @@ export PATH="$BIN:$PATH"
 export NOXIS_WORK="$W/work" NOXIS_OUT="$W/out" NOXIS_TOR_FPR="$TORF" NOXIS_MULLVAD_FPR="$MULF"
 B="$NX/build-noxis-linux.sh"
 
-$B opsec > "$W/o1" 2>&1;                      ok "opsec: Paket gebaut" "dpkg-deb -I $NOXIS_WORK/downloads/noxis-opsec_1.0.0_all.deb"
-$B fetch > "$W/f1" 2>&1;                      ok "fetch: Tor-Signatur gültig (echtes gpgv)" "grep -q 'Tor-Browser-Signatur gültig' $W/f1"
-ok "fetch: neueste stabile Tor-Version (16.0, nicht Alpha)" "grep -q 'Tor Browser 16.0 (Linux aarch64)' $W/f1"
-ok "fetch: Mullvad-Fingerabdruck geprüft" "grep -q 'Mullvad-Schlüssel ok' $W/f1"
-ok "fetch: arkenfox umgewandelt, keine user_pref übrig" "grep -q 'arkenfox: 18[0-9] Einstellungen' $W/f1 && ! grep -q '^user_pref' $NOXIS_WORK/downloads/noxis-arkenfox.js"
-ok "fetch: git clone mit --depth=1" "grep -q 'git clone -q --depth=1' $LOG"
-TAMPER=1 $B fetch > "$W/f2" 2>&1;            ok "fetch: manipulierter Tor Browser wird abgelehnt" "grep -q 'UNGÜLTIG' $W/f2"
-MULLVAD_KEY=evil $B fetch > "$W/f3" 2>&1;    ok "fetch: falscher Mullvad-Schlüssel wird abgelehnt" "grep -q 'Mullvad-Repo-Schlüssel unerwartet' $W/f3"
+$B opsec > "$W/o1" 2>&1;                      ok "opsec: package built" "dpkg-deb -I $NOXIS_WORK/downloads/noxis-opsec_1.0.0_all.deb"
+$B fetch > "$W/f1" 2>&1;                      ok "fetch: Tor signature valid (real gpgv)" "grep -q 'Tor Browser signature valid' $W/f1"
+ok "fetch: latest stable Tor version (16.0, not alpha)" "grep -q 'Tor Browser 16.0 (Linux aarch64)' $W/f1"
+ok "fetch: Mullvad fingerprint checked" "grep -q 'Mullvad key ok' $W/f1"
+ok "fetch: arkenfox converted, no user_pref left" "grep -q 'arkenfox: 18[0-9] prefs' $W/f1 && ! grep -q '^user_pref' $NOXIS_WORK/downloads/noxis-arkenfox.js"
+ok "fetch: git clone with --depth=1" "grep -q 'git clone -q --depth=1' $LOG"
+TAMPER=1 $B fetch > "$W/f2" 2>&1;            ok "fetch: tampered Tor Browser rejected" "grep -q 'INVALID' $W/f2"
+MULLVAD_KEY=evil $B fetch > "$W/f3" 2>&1;    ok "fetch: wrong Mullvad key rejected" "grep -q 'Unexpected Mullvad repository key' $W/f3"
 NOXIS_TOR_FPR=0000000000000000000000000000000000000000 $B fetch > "$W/f4" 2>&1
-ok "fetch: falscher Tor-Fingerabdruck wird abgelehnt" "grep -q 'falschen Fingerabdruck' $W/f4"
+ok "fetch: wrong Tor fingerprint rejected" "grep -q 'wrong fingerprint' $W/f4"
 $B fetch > /dev/null 2>&1   # wieder sauberer Stand
 
-$B rootfs > "$W/r1" 2>&1;                     ok "rootfs: Tar erzeugt" "[ -s $NOXIS_WORK/rootfs.tar ]"
-ok "rootfs: arm64, trixie, Phosh, Squeekboard, Firewall-Pakete" "grep -q -- '--arch=arm64' $LOG && grep -q 'trixie' $LOG && grep -q 'phosh-core' $LOG && grep -q 'squeekboard' $LOG && grep -q 'nftables' $LOG && grep -q 'usbguard' $LOG"
-ok "rootfs: customize.sh läuft im Chroot" "tar -tf $NOXIS_WORK/rootfs.tar | grep -q 'etc/.customize-hook'"
-ok "rootfs: customize.sh syntaktisch ok" "bash -n $NOXIS_WORK/customize.sh"
-ok "rootfs: Mullvad-Repo + Lockdown-Paket + kein SSH im Chroot-Skript" "grep -q 'repository.mullvad.net/deb/stable' $NOXIS_WORK/customize.sh && grep -q 'noxis-opsec.deb' $NOXIS_WORK/customize.sh && grep -q 'mask --quiet ssh.service' $NOXIS_WORK/customize.sh"
+$B rootfs > "$W/r1" 2>&1;                     ok "rootfs: tar created" "[ -s $NOXIS_WORK/rootfs.tar ]"
+ok "rootfs: arm64, trixie, Phosh, Squeekboard, firewall packages" "grep -q -- '--arch=arm64' $LOG && grep -q 'trixie' $LOG && grep -q 'phosh-core' $LOG && grep -q 'squeekboard' $LOG && grep -q 'nftables' $LOG && grep -q 'usbguard' $LOG"
+ok "rootfs: customize.sh runs in the chroot" "tar -tf $NOXIS_WORK/rootfs.tar | grep -q 'etc/.customize-hook'"
+ok "rootfs: customize.sh syntax ok" "bash -n $NOXIS_WORK/customize.sh"
+ok "rootfs: Mullvad repo + lockdown package + no SSH in the chroot script" "grep -q 'repository.mullvad.net/deb/stable' $NOXIS_WORK/customize.sh && grep -q 'noxis-opsec.deb' $NOXIS_WORK/customize.sh && grep -q 'mask --quiet ssh.service' $NOXIS_WORK/customize.sh"
 
-$B image > "$W/i1" 2>&1;                      ok "image: rootfs.img ist echtes ext4" "e2fsck -fn $NOXIS_OUT/rootfs.img"
-ok "image: Firewall-Regel im Image lesbar" "debugfs -R 'cat /etc/noxis/firewall.nft' $NOXIS_OUT/rootfs.img 2>/dev/null | grep -q 'policy drop'"
-$B boot > "$W/b1" 2>&1;                       ok "boot: ohne 3a-Kernel sauber übersprungen" "grep -q 'Kein Kernel für Nothing Phone (3a)' $W/b1 && [ -f $NOXIS_OUT/.no-boot ]"
+$B image > "$W/i1" 2>&1;                      ok "image: rootfs.img is real ext4" "e2fsck -fn $NOXIS_OUT/rootfs.img"
+ok "image: firewall rules readable in the image" "debugfs -R 'cat /etc/noxis/firewall.nft' $NOXIS_OUT/rootfs.img 2>/dev/null | grep -q 'policy drop'"
+$B boot > "$W/b1" 2>&1;                       ok "boot: skipped cleanly without a 3a kernel" "grep -q 'No kernel for the Nothing Phone (3a)' $W/b1 && [ -f $NOXIS_OUT/.no-boot ]"
 echo bootimg > "$W/boot.img"
-BOOT_IMG="$W/boot.img" $B boot > "$W/b2" 2>&1; ok "boot: BOOT_IMG wird übernommen" "cmp -s $W/boot.img $NOXIS_OUT/boot.img"
+BOOT_IMG="$W/boot.img" $B boot > "$W/b2" 2>&1; ok "boot: BOOT_IMG copied" "cmp -s $W/boot.img $NOXIS_OUT/boot.img"
 
-$B verify > "$W/v1" 2>&1;                     ok "verify: Pflichtdateien + SHA-256" "grep -q 'SHA-256 ok' $W/v1 && [ -f $NOXIS_OUT/.verified ]"
-ok "verify: SHA256SUMS enthält rootfs.img und boot.img" "grep -q rootfs.img $NOXIS_OUT/SHA256SUMS && grep -q boot.img $NOXIS_OUT/SHA256SUMS"
+$B verify > "$W/v1" 2>&1;                     ok "verify: required files + SHA-256" "grep -q 'SHA-256 ok' $W/v1 && [ -f $NOXIS_OUT/.verified ]"
+ok "verify: SHA256SUMS contains rootfs.img and boot.img" "grep -q rootfs.img $NOXIS_OUT/SHA256SUMS && grep -q boot.img $NOXIS_OUT/SHA256SUMS"
 
-# Negativfall: kaputtes Image darf nicht verifiziert und nicht aufgeräumt werden
+# negative case: a broken image must not verify and must not be cleaned up
 NW="$W/work2"; NO="$W/out2"
 NOXIS_WORK=$NW NOXIS_OUT=$NO $B opsec >/dev/null 2>&1
 NOXIS_WORK=$NW NOXIS_OUT=$NO $B fetch >/dev/null 2>&1
 DROP_USBLOCK=1 NOXIS_WORK=$NW NOXIS_OUT=$NO $B rootfs >/dev/null 2>&1
 NOXIS_WORK=$NW NOXIS_OUT=$NO $B image >/dev/null 2>&1
 NOXIS_WORK=$NW NOXIS_OUT=$NO $B verify > "$W/v2" 2>&1
-ok "verify: fehlende Datei im Image wird erkannt" "grep -q 'Pflichtdateien fehlen' $W/v2"
+ok "verify: missing file in the image detected" "grep -q 'Required files missing' $W/v2"
 NOXIS_WORK=$NW NOXIS_OUT=$NO $B cleanup > "$W/c2" 2>&1
-ok "cleanup: ohne Verifizierung wird NICHTS gelöscht" "grep -q 'NICHT gelöscht' $W/c2 && [ -d $NW ]"
+ok "cleanup: nothing deleted without verification" "grep -q 'will NOT be deleted' $W/c2 && [ -d $NW ]"
 echo kaputt >> "$NOXIS_OUT/rootfs.img"
 $B cleanup > "$W/c3" 2>&1
-ok "cleanup: veränderte Ausgabe (SHA-256) → nichts gelöscht" "grep -q 'beschädigt' $W/c3 && [ -d $NOXIS_WORK ]"
+ok "cleanup: changed output (SHA-256) → nothing deleted" "grep -q 'Output damaged' $W/c3 && [ -d $NOXIS_WORK ]"
 ( cd "$NOXIS_OUT" && sha256sum rootfs.img boot.img > SHA256SUMS )
 NOXIS_WORK="$HOME" $B cleanup > "$W/c4" 2>&1
-ok "cleanup: verweigert WORK=\$HOME" "grep -q 'Unsicherer WORK-Pfad' $W/c4"
+ok "cleanup: refuses WORK=\$HOME" "grep -q 'Unsafe WORK path' $W/c4"
 $B cleanup > "$W/c5" 2>&1
-ok "cleanup: Build-Ordner gelöscht, Ergebnis bleibt" "[ ! -d $NOXIS_WORK ] && [ -f $NOXIS_OUT/rootfs.img ] && [ -f $NOXIS_OUT/boot.img ]"
+ok "cleanup: build folder deleted, output kept" "[ ! -d $NOXIS_WORK ] && [ -f $NOXIS_OUT/rootfs.img ] && [ -f $NOXIS_OUT/boot.img ]"
 
-echo; echo "$pass bestanden, $fail fehlgeschlagen"
+echo; echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ] && rm -rf "$W" || echo "Logs: $W"
 [ "$fail" -eq 0 ]

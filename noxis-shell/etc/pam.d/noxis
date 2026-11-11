@@ -1,5 +1,5 @@
 #%PAM-1.0
-# Noxis-DM: Anmeldung des Benutzers (PIN = Kontopasswort)
+# noxis-dm: user login (PIN = account password)
 auth       requisite  pam_nologin.so
 auth       optional   pam_faildelay.so delay=2000000
 @include common-auth

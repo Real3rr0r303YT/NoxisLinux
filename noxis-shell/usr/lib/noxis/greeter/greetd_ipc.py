@@ -1,4 +1,4 @@
-"""greetd-IPC: Länge (u32, native Byte-Reihenfolge) + JSON über $GREETD_SOCK."""
+"""greetd IPC: length (u32, native byte order) + JSON over $GREETD_SOCK (spoken by noxis-dm)."""
 import json
 import os
 import socket
@@ -13,7 +13,7 @@ class Greetd:
     def __init__(self, path=None):
         self.path = path or os.environ.get("GREETD_SOCK")
         if not self.path:
-            raise GreetdError("GREETD_SOCK fehlt")
+            raise GreetdError("GREETD_SOCK not set")
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.connect(self.path)
 
@@ -28,7 +28,7 @@ class Greetd:
         while len(buf) < n:
             chunk = self.sock.recv(n - len(buf))
             if not chunk:
-                raise GreetdError("greetd hat die Verbindung geschlossen")
+                raise GreetdError("display manager closed the connection")
             buf += chunk
         return buf
 
@@ -45,33 +45,46 @@ class Greetd:
             return None
 
     def login(self, username, secret, cmd, env=()):
-        """Ein Anmeldeversuch. Rückgabe: (True, None) oder (False, Meldung).
-        Jede geheime Abfrage (PIN/Passwort) bekommt `secret`, sichtbare Fragen werden abgebrochen."""
+        """One login attempt. Returns (True, None) or (False, code) with code in
+        wrong_pin | extra | pin_expired | error  (details in self.detail).
+        The first secret prompt gets `secret`; anything else is cancelled, never guessed."""
+        self.detail = ""
         resp = self.request({"type": "create_session", "username": username})
         asked = 0
         while resp.get("type") == "auth_message":
             kind = resp.get("auth_message_type")
             if kind == "secret":
                 asked += 1
-                if asked > 1:  # zweite PIN-Frage = PAM will mehr (z. B. abgelaufen) → nicht raten
+                if asked > 1:  # second secret prompt = PAM wants more (e.g. expired) → do not guess
                     self.cancel()
-                    return False, "Zusätzliche Abfrage – bitte am Terminal anmelden"
+                    return False, "extra"
                 resp = self.request({"type": "post_auth_message_response", "response": secret})
             elif kind in ("info", "error"):
                 resp = self.request({"type": "post_auth_message_response", "response": None})
-            else:  # visible: Fragen ohne Antwort aus der UI
+            else:  # visible prompt: the UI has no answer for it
                 self.cancel()
-                return False, resp.get("auth_message") or "Unbekannte Abfrage"
+                self.detail = resp.get("auth_message") or ""
+                return False, "extra"
         if resp.get("type") == "error":
             self.cancel()
             if resp.get("error_type") == "auth_error":
-                return False, "Falsche PIN"
-            return False, resp.get("description") or "Fehler"
+                return False, "wrong_pin"
+            self.detail = resp.get("description") or ""
+            return False, "pin_expired" if "expired" in self.detail else "error"
         if resp.get("type") != "success":
             self.cancel()
-            return False, "Unerwartete Antwort"
+            self.detail = "unexpected reply"
+            return False, "error"
         resp = self.request({"type": "start_session", "cmd": list(cmd), "env": list(env)})
         if resp.get("type") != "success":
             self.cancel()
-            return False, resp.get("description") or "Sitzung startet nicht"
+            self.detail = resp.get("description") or "session refused"
+            return False, "error"
         return True, None
+
+    def setup_info(self, lang):
+        return self.request({"type": "noxis_setup_info", "lang": lang})
+
+    def setup(self, lang, timezone):
+        r = self.request({"type": "noxis_setup", "lang": lang, "timezone": timezone})
+        return r.get("type") == "success", r.get("description", "")

@@ -1,4 +1,4 @@
-# Noxis – Plymouth-Skript: Logo mittig, Wortmarke darunter, pulsierender Punkt, PIN-Abfrage (LUKS)
+# Noxis – Plymouth script: centred logo, wordmark below, pulsing emblem, PIN prompt (LUKS)
 Window.SetBackgroundTopColor(0.027, 0.027, 0.043);
 Window.SetBackgroundBottomColor(0.020, 0.020, 0.031);
 
@@ -20,7 +20,7 @@ fun refresh() {
 }
 Plymouth.SetRefreshFunction(refresh);
 
-# Passwortabfrage (z. B. verschlüsselte Partition)
+# password prompt (e.g. encrypted partition)
 fun display_password(prompt, bullets) {
   s = "";
   for (i = 0; i < bullets; i++) s += "● ";

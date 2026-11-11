@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests für noxis-dm mit echtem Linux-PAM (eigenes confdir, pam_exec prüft die PIN).
-Muss als root laufen (Rechteabgabe, Sitzungsstart). Nutzt die Konten 'nobody' (Greeter) und
-einen normalen Benutzer mit Shell (Standard: erster uid ≥ 1000) – ohne /etc zu ändern."""
+"""Tests for noxis-dm with real Linux-PAM (own confdir, pam_exec checks the PIN).
+Must run as root (privilege drop, session start). Uses the accounts 'nobody' (greeter) and a
+regular user with a shell (default: first uid ≥ 1000) – without touching /etc."""
 import importlib.machinery
 import importlib.util
 import os
@@ -36,7 +36,7 @@ def check(name, cond, info=""):
 
 
 if os.geteuid() != 0:
-    print("als root starten")
+    print("run as root")
     sys.exit(2)
 
 USER = os.environ.get("NOXIS_TEST_USER") or next(
@@ -44,7 +44,7 @@ USER = os.environ.get("NOXIS_TEST_USER") or next(
     if 1000 <= p.pw_uid < 60000 and p.pw_shell.endswith(("bash", "/sh", "zsh")))
 UPW = pwd.getpwnam(USER)
 
-# Testumgebung: für nobody/USER lesbar
+# test environment: readable for nobody/USER
 T = tempfile.mkdtemp(prefix="noxis-dm-")
 os.chmod(T, 0o755)
 pamdir = os.path.join(T, "pam.d")
@@ -63,7 +63,7 @@ os.makedirs(out)
 os.chmod(out, 0o777)
 fake_session = os.path.join(T, "phosh-session")
 with open(fake_session, "w") as f:
-    f.write(f"#!/bin/sh\n{{ echo uid=$(id -u); echo mode=$NOXIS_MODE; echo pre=${{LD_PRELOAD:-leer}};"
+    f.write(f"#!/bin/sh\n{{ echo uid=$(id -u); echo mode=$NOXIS_MODE; echo pre=${{LD_PRELOAD:-empty}};"
             f" echo class=$XDG_SESSION_CLASS; echo home=$HOME; echo umask=$(umask); }} > {out}/session\n")
 os.chmod(fake_session, 0o755)
 for fn in ("greetd_ipc.py",):
@@ -87,7 +87,7 @@ conf.update(vt=0, greeter_user="nobody", greeter_cmd=f"{sys.executable} -I {fake
 
 
 def client_server(fn):
-    """Authenticator auf einer Seite eines socketpair, fn(client) auf der anderen."""
+    """Authenticator on one end of a socketpair, fn(client) on the other."""
     a = dm.Authenticator(conf)
     s1, s2 = socket.socketpair()
     th = threading.Thread(target=lambda: (a.handle(s1), s1.close()), daemon=True)
@@ -101,16 +101,16 @@ def client_server(fn):
     return a, res
 
 
-print("== PAM + greetd-Protokoll")
+print("== PAM + greetd protocol")
 a, (ok, e) = client_server(lambda g: g.login(USER, "147147", ["phosh-session"], ["NOXIS_MODE=mobile", "LD_PRELOAD=x"]))
-check("richtige PIN über echtes PAM → angemeldet", ok and a.authed, e)
-check("Sitzung vorgemerkt", a.session == (["phosh-session"], {"NOXIS_MODE": "mobile"}), a.session)
-check("LD_PRELOAD aus Greeter-Umgebung verworfen", "LD_PRELOAD" not in a.session[1])
+check("correct PIN via real PAM → authenticated", ok and a.authed, e)
+check("session queued", a.session == (["phosh-session"], {"NOXIS_MODE": "mobile"}), a.session)
+check("LD_PRELOAD from the greeter env dropped", "LD_PRELOAD" not in a.session[1])
 a.reset()
 a, (ok, e) = client_server(lambda g: g.login(USER, "123456", ["phosh-session"], []))
-check("falsche PIN → abgelehnt", not ok and e == "Falsche PIN" and not a.authed and a.pam is None, e)
+check("wrong PIN → refused", not ok and e == "wrong_pin" and not a.authed and a.pam is None, e)
 a, (ok, e) = client_server(lambda g: g.login(USER, "147147", ["bash"], []))
-check("nicht erlaubte Sitzung (bash) → abgelehnt", not ok and a.session is None, e)
+check("disallowed session (bash) → refused", not ok and a.session is None, e)
 a.reset()
 
 
@@ -125,39 +125,39 @@ def raw(g):
 
 
 a, (r1, r2, r3, r4, r5, r6) = client_server(raw)
-check("start_session ohne Anmeldung → Fehler", r1["type"] == "error")
-check("create_session → PIN-Abfrage (secret)", r2.get("auth_message_type") == "secret", r2)
-check("cancel während Abfrage → success, Zustand leer", r3["type"] == "success" and a.pam is None, r3)
-check("Antwort ohne Abfrage → Fehler", r4["type"] == "error")
-check("Benutzername mit '/' → Fehler", r5["type"] == "error")
-check("unbekannte Anfrage → Fehler", r6["type"] == "error")
-check("unbekannter Benutzer = gleiche Meldung wie falsche PIN", dm.pam.PAM_USER_UNKNOWN in dm.AUTH_FAIL)
+check("start_session without auth → error", r1["type"] == "error")
+check("create_session → PIN prompt (secret)", r2.get("auth_message_type") == "secret", r2)
+check("cancel during prompt → success, state cleared", r3["type"] == "success" and a.pam is None, r3)
+check("answer without prompt → error", r4["type"] == "error")
+check("user name with '/' → error", r5["type"] == "error")
+check("unknown request → error", r6["type"] == "error")
+check("unknown user = same message as wrong PIN", dm.pam.PAM_USER_UNKNOWN in dm.AUTH_FAIL)
 
-print("== Ablauf Greeter → Sitzung (fork, Rechteabgabe)")
+print("== Flow greeter → session (fork, privilege drop)")
 d = dm.DM(conf)
 t0 = time.time()
 ready = d.run_greeter()
-check("Greeter beendet, Sitzung bereit", ready, open(os.path.join(out, "greeter-ok")).read() if os.path.exists(os.path.join(out, "greeter-ok")) else "")
+check("greeter exited, session ready", ready, open(os.path.join(out, "greeter-ok")).read() if os.path.exists(os.path.join(out, "greeter-ok")) else "")
 g = open(os.path.join(out, "greeter")).read()
-check("Greeter lief als nobody", "uid=65534" in g, g)
-check("Greeter bekam GREETD_SOCK und Klasse greeter", "sock=" + os.path.join(conf["run_dir"], "greeter.sock") in g and "class=greeter" in g, g)
-check("Greeter: falsche PIN abgelehnt", open(os.path.join(out, "greeter-fail")).read().startswith("False"))
-check("Socket nach Greeter-Ende entfernt", not os.path.exists(os.path.join(conf["run_dir"], "greeter.sock")))
+check("greeter ran as nobody", "uid=65534" in g, g)
+check("greeter got GREETD_SOCK and class greeter", "sock=" + os.path.join(conf["run_dir"], "greeter.sock") in g and "class=greeter" in g, g)
+check("greeter: wrong PIN refused", open(os.path.join(out, "greeter-fail")).read().startswith("False"))
+check("socket removed after the greeter exits", not os.path.exists(os.path.join(conf["run_dir"], "greeter.sock")))
 d.run_session()
 s = open(os.path.join(out, "session")).read() if os.path.exists(os.path.join(out, "session")) else ""
-check(f"Sitzung lief als {USER} (uid {UPW.pw_uid})", f"uid={UPW.pw_uid}" in s, s)
-check("NOXIS_MODE=desktop durchgereicht", "mode=desktop" in s, s)
-check("LD_PRELOAD nicht in der Sitzung", "pre=leer" in s, s)
-check("Klasse user, HOME gesetzt", "class=user" in s and f"home={UPW.pw_dir}" in s, s)
+check(f"session ran as {USER} (uid {UPW.pw_uid})", f"uid={UPW.pw_uid}" in s, s)
+check("NOXIS_MODE=desktop passed through", "mode=desktop" in s, s)
+check("LD_PRELOAD not in the session", "pre=empty" in s, s)
+check("class user, HOME set", "class=user" in s and f"home={UPW.pw_dir}" in s, s)
 check("umask 077", "umask=0077" in s, s)
-check("Zustand nach Abmelden zurückgesetzt", d.auth.pam is None and d.auth.session is None and not d.auth.authed)
-check(f"Durchlauf < 15 s ({time.time() - t0:.1f} s)", time.time() - t0 < 15)
+check("state reset after logout", d.auth.pam is None and d.auth.session is None and not d.auth.authed)
+check(f"run < 15 s ({time.time() - t0:.1f} s)", time.time() - t0 < 15)
 
-print("== Konfiguration")
+print("== Config")
 c = dm.load_conf(os.path.join(ROOT, "noxis-shell/etc/noxis/dm.conf"))
-check("dm.conf: vt 1, Greeter-Nutzer, Sitzungen", c["vt"] == 1 and c["greeter_user"] == "noxis-greeter" and c["sessions"] == ["phosh-session"], c)
-check("dm.conf: Greeter in cage", "cage" in c["greeter_cmd"] and "noxis-greeter" in c["greeter_cmd"])
+check("dm.conf: vt 1, greeter user, sessions", c["vt"] == 1 and c["greeter_user"] == "noxis-greeter" and c["sessions"] == ["phosh-session"], c)
+check("dm.conf: greeter in cage", "cage" in c["greeter_cmd"] and "noxis-greeter" in c["greeter_cmd"])
 
 shutil.rmtree(T, ignore_errors=True)
-print(f"\n{passed} bestanden, {failed} fehlgeschlagen")
+print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

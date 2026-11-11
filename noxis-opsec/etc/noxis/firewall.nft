@@ -1,15 +1,15 @@
 #!/usr/sbin/nft -f
 # ============================================================
 #  Noxis Linux – Firewall
-#  Eingehend: alles blockiert.  Ausgehend: nur durch den Mullvad-Tunnel.
-#  Läuft ZUSÄTZLICH zu Mullvads eigener Killswitch-Tabelle.
+#  Inbound: everything blocked.  Outbound: only through the Mullvad tunnel.
+#  Runs IN ADDITION to Mullvad's own killswitch table.
 # ============================================================
 
 table inet noxis
 delete table inet noxis
 
 table inet noxis {
-	# Mullvad markiert seinen eigenen Relay-/API-Verkehr mit diesem fwmark ("mole")
+	# Mullvad marks its own relay/API traffic with this fwmark ("mole")
 	define MULLVAD_MARK = 0x6d6f6c65
 
 	set tunnel_ifs {
@@ -24,7 +24,7 @@ table inet noxis {
 		ct state invalid drop
 		ct state established,related accept
 
-		# IPv6-Nachbarschaft und Router-Anzeigen (sonst kein IPv6)
+		# IPv6 neighbour discovery and router advertisements (otherwise no IPv6)
 		icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, packet-too-big } accept
 		icmp type { echo-reply, destination-unreachable, time-exceeded } accept
 
@@ -32,11 +32,11 @@ table inet noxis {
 		udp sport 67 udp dport 68 accept
 		udp sport 547 udp dport 546 accept
 
-		# Waydroid-Container: nur DNS/DHCP vom Host
+		# Waydroid container: only DNS/DHCP from the host
 		iifname "waydroid0" udp dport { 53, 67 } accept
 		iifname "waydroid0" tcp dport 53 accept
 
-		counter comment "verworfen: eingehend"
+		counter comment "dropped: inbound"
 	}
 
 	chain forward {
@@ -44,7 +44,7 @@ table inet noxis {
 
 		ct state invalid drop
 		ct state established,related accept
-		# Waydroid darf nur durch den Tunnel
+		# Waydroid may only use the tunnel
 		iifname "waydroid0" oifname @tunnel_ifs accept
 
 		counter comment "verworfen: weitergeleitet"
@@ -57,12 +57,12 @@ table inet noxis {
 		ct state invalid drop
 		ct state established,related accept
 
-		# Alles, was durch den Tunnel geht
+		# everything going through the tunnel
 		oifname @tunnel_ifs accept
-		# Mullvads eigener Verbindungsaufbau zum Relay / zur API
+		# Mullvad's own connection to the relay / API
 		meta mark $MULLVAD_MARK accept
 
-		# Netz-Grundfunktionen (ohne sie bekommt das Handy keine Adresse)
+		# basic networking (without it the phone gets no address)
 		udp sport 68 udp dport 67 accept
 		udp sport 546 udp dport 547 accept
 		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
@@ -70,6 +70,6 @@ table inet noxis {
 		# Waydroid-Bridge (Container ↔ Host)
 		oifname "waydroid0" accept
 
-		counter comment "verworfen: ausgehend"
+		counter comment "dropped: outbound"
 	}
 }

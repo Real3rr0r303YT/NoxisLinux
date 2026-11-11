@@ -1,4 +1,4 @@
-"""Linux-PAM über ctypes (nur was noxis-dm braucht)."""
+"""Linux-PAM via ctypes (only what noxis-dm needs)."""
 import ctypes
 import ctypes.util
 
@@ -58,25 +58,25 @@ class PamError(Exception):
 
 
 class Pam:
-    """Eine PAM-Transaktion. `ask(style, text) -> str|None` beantwortet Abfragen (None = abbrechen)."""
+    """One PAM transaction. `ask(style, text) -> str|None` answers prompts (None = cancel)."""
 
     def __init__(self, service, user, ask, confdir=None):
         self.ask = ask
         self.handle = ctypes.c_void_p()
-        self._conv_cb = CONV_FUNC(self._conv)          # Referenz halten (sonst GC)
+        self._conv_cb = CONV_FUNC(self._conv)          # keep a reference (else GC)
         self._convstruct = PamConv(self._conv_cb, None)
         if confdir:
             if not _HAS_CONFDIR:
-                raise PamError(-1, "pam_start_confdir fehlt")
+                raise PamError(-1, "pam_start_confdir missing")
             rc = _libpam.pam_start_confdir(service.encode(), user.encode(), ctypes.byref(self._convstruct),
                                            confdir.encode(), ctypes.byref(self.handle))
         else:
             rc = _libpam.pam_start(service.encode(), user.encode(), ctypes.byref(self._convstruct), ctypes.byref(self.handle))
         if rc != PAM_SUCCESS:
-            raise PamError(rc, "pam_start fehlgeschlagen")
+            raise PamError(rc, "pam_start failed")
         self.last = PAM_SUCCESS
 
-    # PAM ruft das mit n Nachrichten auf; Antworten müssen mit calloc/strdup erzeugt werden (PAM gibt sie frei)
+    # PAM calls this with n messages; replies must be allocated with calloc/strdup (PAM frees them)
     def _conv(self, n, msgs, resp, _appdata):
         arr = _libc.calloc(n, ctypes.sizeof(PamResponse))
         if not arr:
@@ -87,7 +87,7 @@ class Pam:
             text = (m.msg or b"").decode(errors="replace")
             try:
                 answer = self.ask(m.msg_style, text)
-            except Exception:  # noqa: BLE001 – Fehler im Callback dürfen PAM nicht abstürzen lassen
+            except Exception:  # noqa: BLE001 – errors in the callback must not crash PAM
                 answer = None
             if m.msg_style in (PAM_PROMPT_ECHO_OFF, PAM_PROMPT_ECHO_ON):
                 if answer is None:
@@ -118,16 +118,16 @@ class Pam:
         _libpam.pam_putenv(self.handle, f"{key}={value}".encode())
 
     def authenticate(self):
-        self._check(_libpam.pam_authenticate(self.handle, 0), "Anmeldung")
+        self._check(_libpam.pam_authenticate(self.handle, 0), "authenticate")
 
     def acct_mgmt(self):
-        self._check(_libpam.pam_acct_mgmt(self.handle, 0), "Konto")
+        self._check(_libpam.pam_acct_mgmt(self.handle, 0), "account")
 
     def setcred(self, establish=True):
-        self._check(_libpam.pam_setcred(self.handle, PAM_ESTABLISH_CRED if establish else PAM_DELETE_CRED), "Rechte")
+        self._check(_libpam.pam_setcred(self.handle, PAM_ESTABLISH_CRED if establish else PAM_DELETE_CRED), "credentials")
 
     def open_session(self):
-        self._check(_libpam.pam_open_session(self.handle, 0), "Sitzung")
+        self._check(_libpam.pam_open_session(self.handle, 0), "session")
 
     def close_session(self):
         self.last = _libpam.pam_close_session(self.handle, 0)

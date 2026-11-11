@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Noxis Desktop
-Comment=Phosh mit externem Bildschirm, Tastatur und Maus
+Comment=Phosh with external display, keyboard and mouse
 Exec=env NOXIS_MODE=desktop phosh-session
 Type=Application
 DesktopNames=Phosh;GNOME;

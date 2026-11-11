@@ -1,18 +1,18 @@
 #!/bin/sh
-# Noxis: Mullvad dauerhaft auf Always-on + Killswitch setzen (idempotent)
+# Noxis: keep Mullvad on always-on + killswitch (idempotent)
 set -eu
 i=0
 until mullvad status >/dev/null 2>&1; do
-	i=$((i + 1)); [ "$i" -ge 60 ] && { echo "mullvad-daemon antwortet nicht" >&2; exit 1; }
+	i=$((i + 1)); [ "$i" -ge 60 ] && { echo "mullvad-daemon not responding" >&2; exit 1; }
 	sleep 1
 done
 mullvad lockdown-mode set on
 mullvad auto-connect set on
 mullvad lan set block
-# DNS: Quad9 – im WireGuard-Tunnel verschlüsselt
-mullvad dns set custom 9.9.9.9 149.112.112.112 || echo "Hinweis: DNS-Einstellung nicht gesetzt" >&2
+# DNS: Quad9 – encrypted inside the WireGuard tunnel
+mullvad dns set custom 9.9.9.9 149.112.112.112 || echo "note: DNS setting not applied" >&2
 if ! mullvad lockdown-mode get | grep -qiE ':[[:space:]]*on'; then
-	echo "FEHLER: Mullvad-Lockdown ist nicht aktiv" >&2
+	echo "ERROR: Mullvad lockdown mode is not active" >&2
 	exit 1
 fi
 echo "Mullvad: Lockdown + Auto-Connect aktiv"

@@ -1,5 +1,5 @@
 [Unit]
-Description=Noxis Firewall (nftables: eingehend dicht, ausgehend nur Tunnel)
+Description=Noxis firewall (nftables: inbound closed, outbound tunnel only)
 Documentation=file:/etc/noxis/firewall.nft
 DefaultDependencies=no
 Before=network-pre.target

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Noxis USB-Sperre.
+"""Noxis USB lock.
 
-Gesperrt (Phosh-Sperrbildschirm → logind LockedHint=true) oder noch kein Benutzer angemeldet:
-  * USBGuard: neue USB-Geräte (OTG) werden blockiert
-  * USB-Gadget: Handy trennt sich als USB-Gerät (kein MTP/RNDIS/ADB) – Laden bleibt
-Entsperrt: alles wieder wie vorher.
+Locked (Phosh lock screen → logind LockedHint=true) or no user logged in yet:
+  * USBGuard: new USB devices (OTG) are blocked
+  * USB gadget: the phone detaches as a USB device (no MTP/RNDIS/ADB) – charging keeps working
+Unlocked: everything back to normal.
 
-Umgebung (für Tests): NOXIS_CONFIGFS, NOXIS_RUN, NOXIS_USBGUARD
+Environment (for tests): NOXIS_CONFIGFS, NOXIS_RUN, NOXIS_USBGUARD
 """
 import os
 import subprocess
@@ -74,9 +74,9 @@ def usbguard(target):
     try:
         subprocess.run([USBGUARD, "set-parameter", "ImplicitPolicyTarget", target],
                        check=True, capture_output=True, timeout=10)
-        log(f"USBGuard: neue Geräte → {target}")
+        log(f"USBGuard: new devices → {target}")
     except (OSError, subprocess.SubprocessError) as e:
-        log(f"USBGuard nicht erreichbar: {e}")
+        log(f"USBGuard unreachable: {e}")
 
 
 _state = {"locked": None}
@@ -114,13 +114,13 @@ def main():
         try:
             r = bus.call_sync(LOGIN1, "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
                               "ListSessions", None, None, Gio.DBusCallFlags.NONE, 2000, None)
-            # (session_id, uid, user, seat, path); nur echte Benutzer
+            # (session_id, uid, user, seat, path); real users only
             return [s[4] for s in r.unpack()[0] if s[1] >= 1000]
         except GLib.Error:
             return []
 
     def recompute():
-        # Gesperrt, solange kein Benutzer angemeldet ist oder irgendeine Sitzung gesperrt ist
+        # locked while no user is logged in or any session is locked
         apply(not sessions or any(sessions.values()))
 
     def on_props(_c, _s, path, _i, _sig, params, *_):
