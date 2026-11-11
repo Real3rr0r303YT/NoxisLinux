@@ -1,0 +1,14 @@
+[Unit]
+Description=Noxis: Mullvad Always-on VPN + Killswitch erzwingen
+Requires=mullvad-daemon.service
+After=mullvad-daemon.service noxis-firewall.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/noxis/mullvad-setup
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

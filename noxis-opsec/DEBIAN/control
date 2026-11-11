@@ -1,0 +1,14 @@
+Package: noxis-opsec
+Version: 1.0.0
+Architecture: all
+Maintainer: 3rr0r <https://github.com/Real3rr0r303YT>
+Section: admin
+Priority: optional
+Depends: nftables, systemd-resolved, network-manager, usbguard, python3, python3-gi, squeekboard, mullvad-vpn
+Recommends: firefox-esr, waydroid
+Conflicts: phosh-osk-stevia, phosh-osk-stub
+Description: Noxis Linux – OPSEC-Schicht
+ Firewall (eingehend dicht, ausgehend nur Mullvad-Tunnel), Mullvad
+ Always-on + Killswitch, Quad9 über DNS-over-TLS, USB-Sperre im
+ gesperrten Zustand, Tastatur ohne Vorhersage mit RAM-only-Daten,
+ flüchtige Protokolle, Kernel-Härtung, zufällige MAC-Adressen.

@@ -1,0 +1,6 @@
+/etc/noxis/firewall.nft
+/etc/systemd/resolved.conf.d/90-noxis.conf
+/etc/systemd/journald.conf.d/90-noxis.conf
+/etc/systemd/coredump.conf.d/90-noxis.conf
+/etc/sysctl.d/90-noxis.conf
+/etc/NetworkManager/conf.d/90-noxis.conf

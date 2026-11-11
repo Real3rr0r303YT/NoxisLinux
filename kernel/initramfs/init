@@ -1,0 +1,129 @@
+#!/bin/sh
+# Noxis Linux – Initramfs für Nothing Phone (3a)
+# Lädt First-Stage-Module, mountet userdata (Noxis-Rootfs) + Firmware-Partitionen, startet systemd.
+# Kernel-Parameter: noxis.debug=1 → USB-Netz 172.16.42.1 + telnet-Shell (nur am Kabel), kein Weiterbooten
+#                   noxis.root=<partname> (Standard: userdata)
+
+export PATH=/bin:/sbin
+CMDLINE_FILE=${NOXIS_T_CMDLINE:-/proc/cmdline}
+BOOTCONFIG_FILE=${NOXIS_T_BOOTCONFIG:-/proc/bootconfig}
+SYS_BLOCK=${NOXIS_T_SYSBLOCK:-/sys/class/block}
+
+early_mounts() {
+  mkdir -p /proc /sys /dev /run /sysroot /tmp
+  mount -t proc proc /proc
+  mount -t sysfs sysfs /sys
+  mount -t devtmpfs devtmpfs /dev 2>/dev/null
+  mkdir -p /dev/pts && mount -t devpts devpts /dev/pts
+  mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+  mount -t configfs configfs /sys/kernel/config 2>/dev/null
+}
+
+log() { echo "noxis-init: $*" > /dev/kmsg 2>/dev/null || echo "noxis-init: $*"; }
+
+cmdline_get() {  # $1 = Schlüssel
+  for a in $(cat "$CMDLINE_FILE"); do
+    case "$a" in "$1"=*) echo "${a#*=}"; return 0 ;; esac
+  done
+  return 1
+}
+
+bootconfig_get() {  # $1 = Schlüssel aus /proc/bootconfig
+  [ -r "$BOOTCONFIG_FILE" ] || return 1
+  sed -n "s/^$1 = \"\(.*\)\"$/\1/p" "$BOOTCONFIG_FILE" | head -n1
+}
+
+find_part() {  # $1 = PARTNAME → /dev/sdXN
+  for u in "$SYS_BLOCK"/*/uevent; do
+    [ -r "$u" ] || continue
+    if grep -qx "PARTNAME=$1" "$u"; then
+      echo "/dev/$(sed -n 's/^DEVNAME=//p' "$u")"
+      return 0
+    fi
+  done
+  return 1
+}
+
+wait_part() {  # $1 = PARTNAME, $2 = Sekunden
+  i=0
+  while [ "$i" -lt "$(( $2 * 10 ))" ]; do
+    find_part "$1" && return 0
+    sleep 0.1; i=$((i + 1))
+  done
+  return 1
+}
+
+load_modules() {
+  KREL=$(uname -r)
+  list=/lib/modules/$KREL/modules.load.noxis
+  [ -f "$list" ] || { log "keine Modulliste $list"; return 0; }
+  ok=0; fail=0
+  while read -r m; do
+    case "$m" in ''|'#'*) continue ;; esac
+    if modprobe -q "${m%.ko}" 2>/dev/null; then ok=$((ok + 1)); else fail=$((fail + 1)); log "Modul fehlt/fehlerhaft: $m"; fi
+  done < "$list"
+  log "Module: $ok geladen, $fail fehlgeschlagen"
+}
+
+usb_debug() {
+  g=/sys/kernel/config/usb_gadget/noxis
+  udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
+  [ -n "$udc" ] || { log "kein USB-Controller (UDC)"; return 1; }
+  mkdir -p "$g" || return 1
+  echo 0x18D1 > "$g/idVendor"; echo 0xD001 > "$g/idProduct"
+  mkdir -p "$g/strings/0x409"
+  echo "Noxis"         > "$g/strings/0x409/manufacturer"
+  echo "Noxis Debug"   > "$g/strings/0x409/product"
+  echo "noxis"         > "$g/strings/0x409/serialnumber"
+  fn=ncm.usb0
+  mkdir -p "$g/functions/$fn" 2>/dev/null || { fn=rndis.usb0; mkdir -p "$g/functions/$fn" || return 1; }
+  mkdir -p "$g/configs/c.1/strings/0x409"
+  echo "$fn" > "$g/configs/c.1/strings/0x409/configuration"
+  ln -s "$g/functions/$fn" "$g/configs/c.1/" 2>/dev/null
+  echo "$udc" > "$g/UDC" || return 1
+  sleep 1
+  ip link set usb0 up 2>/dev/null || ifconfig usb0 up
+  ip addr add 172.16.42.1/24 dev usb0 2>/dev/null || ifconfig usb0 172.16.42.1 netmask 255.255.255.0
+  udhcpd -S /etc/udhcpd.conf 2>/dev/null
+  telnetd -b 172.16.42.1:23 -l /bin/sh
+  log "USB-Debug aktiv: telnet 172.16.42.1 (Funktion $fn, UDC $udc)"
+}
+
+rescue() {
+  log "FEHLER: $* – Rettungsmodus"
+  usb_debug || true
+  exec sh
+}
+
+# ---------------------------------------------------------------- Ablauf
+[ "${NOXIS_T_LIB:-0}" = 1 ] && return 0 2>/dev/null   # Tests: nur Funktionen laden
+early_mounts
+load_modules
+
+SLOT=$(bootconfig_get androidboot.slot_suffix)
+[ -n "$SLOT" ] || SLOT=$(cmdline_get androidboot.slot_suffix)
+ROOT_PART=$(cmdline_get noxis.root) || ROOT_PART=userdata
+
+if [ "$(cmdline_get noxis.debug)" = 1 ]; then
+  usb_debug
+  log "noxis.debug=1 – bleibe im Initramfs"
+  exec sh
+fi
+
+ROOT_DEV=$(wait_part "$ROOT_PART" 20) || rescue "Partition $ROOT_PART nicht gefunden"
+log "Root: $ROOT_DEV (Slot ${SLOT:-?})"
+e2fsck -p "$ROOT_DEV" >/dev/null 2>&1
+mount -t ext4 -o rw,noatime,nodev "$ROOT_DEV" /sysroot || rescue "mount $ROOT_DEV fehlgeschlagen"
+[ -x /sysroot/sbin/init ] || [ -L /sysroot/sbin/init ] || rescue "kein /sbin/init auf $ROOT_DEV"
+
+# Firmware: modem (vfat) und dsp (ext4) des aktiven Slots, nur lesend
+mkdir -p /sysroot/vendor/firmware_mnt /sysroot/vendor/dsp
+if p=$(find_part "modem$SLOT"); then
+  mount -t vfat -o ro,nosuid,nodev,noexec,shortname=lower "$p" /sysroot/vendor/firmware_mnt || log "modem$SLOT nicht gemountet"
+fi
+if p=$(find_part "dsp$SLOT"); then
+  mount -t ext4 -o ro,nosuid,nodev,noexec "$p" /sysroot/vendor/dsp || log "dsp$SLOT nicht gemountet"
+fi
+
+for m in /dev /proc /sys /run; do mount --move "$m" "/sysroot$m" 2>/dev/null || mount -o bind "$m" "/sysroot$m"; done
+exec switch_root /sysroot /sbin/init

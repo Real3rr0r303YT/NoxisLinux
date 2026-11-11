@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Noxis Desktop-Modus
+Exec=/usr/lib/noxis/noxis-dock
+OnlyShowIn=Phosh;GNOME;
+NoDisplay=true
+X-GNOME-Autostart-Phase=Applications

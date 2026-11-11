@@ -1,0 +1,75 @@
+#!/usr/sbin/nft -f
+# ============================================================
+#  Noxis Linux – Firewall
+#  Eingehend: alles blockiert.  Ausgehend: nur durch den Mullvad-Tunnel.
+#  Läuft ZUSÄTZLICH zu Mullvads eigener Killswitch-Tabelle.
+# ============================================================
+
+table inet noxis
+delete table inet noxis
+
+table inet noxis {
+	# Mullvad markiert seinen eigenen Relay-/API-Verkehr mit diesem fwmark ("mole")
+	define MULLVAD_MARK = 0x6d6f6c65
+
+	set tunnel_ifs {
+		type ifname
+		elements = { "wg0-mullvad", "wg-mullvad" }
+	}
+
+	chain input {
+		type filter hook input priority filter - 10; policy drop;
+
+		iif "lo" accept
+		ct state invalid drop
+		ct state established,related accept
+
+		# IPv6-Nachbarschaft und Router-Anzeigen (sonst kein IPv6)
+		icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, packet-too-big } accept
+		icmp type { echo-reply, destination-unreachable, time-exceeded } accept
+
+		# DHCP-Antworten
+		udp sport 67 udp dport 68 accept
+		udp sport 547 udp dport 546 accept
+
+		# Waydroid-Container: nur DNS/DHCP vom Host
+		iifname "waydroid0" udp dport { 53, 67 } accept
+		iifname "waydroid0" tcp dport 53 accept
+
+		counter comment "verworfen: eingehend"
+	}
+
+	chain forward {
+		type filter hook forward priority filter - 10; policy drop;
+
+		ct state invalid drop
+		ct state established,related accept
+		# Waydroid darf nur durch den Tunnel
+		iifname "waydroid0" oifname @tunnel_ifs accept
+
+		counter comment "verworfen: weitergeleitet"
+	}
+
+	chain output {
+		type filter hook output priority filter - 10; policy drop;
+
+		oif "lo" accept
+		ct state invalid drop
+		ct state established,related accept
+
+		# Alles, was durch den Tunnel geht
+		oifname @tunnel_ifs accept
+		# Mullvads eigener Verbindungsaufbau zum Relay / zur API
+		meta mark $MULLVAD_MARK accept
+
+		# Netz-Grundfunktionen (ohne sie bekommt das Handy keine Adresse)
+		udp sport 68 udp dport 67 accept
+		udp sport 546 udp dport 547 accept
+		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
+
+		# Waydroid-Bridge (Container ↔ Host)
+		oifname "waydroid0" accept
+
+		counter comment "verworfen: ausgehend"
+	}
+}

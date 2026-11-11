@@ -1,0 +1,20 @@
+[Unit]
+Description=Noxis Firewall (nftables: eingehend dicht, ausgehend nur Tunnel)
+Documentation=file:/etc/noxis/firewall.nft
+DefaultDependencies=no
+Before=network-pre.target
+Wants=network-pre.target
+After=local-fs.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/noxis/firewall.nft
+ExecReload=/usr/sbin/nft -f /etc/noxis/firewall.nft
+ExecStop=/usr/sbin/nft delete table inet noxis
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=sysinit.target

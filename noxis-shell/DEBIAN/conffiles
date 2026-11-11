@@ -1,0 +1,6 @@
+/etc/noxis/greeter.conf
+/etc/noxis/dock.conf
+/etc/noxis/dm.conf
+/etc/pam.d/noxis
+/etc/pam.d/noxis-greeter
+/etc/xdg/autostart/noxis-dock.desktop

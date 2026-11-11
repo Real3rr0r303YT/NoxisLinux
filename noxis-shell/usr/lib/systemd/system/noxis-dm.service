@@ -1,0 +1,23 @@
+[Unit]
+Description=Noxis Display Manager
+Documentation=https://github.com/Real3rr0r303YT/NoxisLinux
+After=systemd-user-sessions.service plymouth-quit-wait.service getty@tty1.service systemd-logind.service
+Wants=systemd-logind.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/plymouth quit --retain-splash
+ExecStart=/usr/lib/noxis/dm/noxis-dm
+Restart=always
+RestartSec=2
+IgnoreSIGPIPE=no
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+# Keine Namespace-Härtung hier: Benutzersitzungen erben Netz- und Dateisystemsicht des DM.
+# Abgesichert wird über PAM, logind (eigene Sitzung/Scope) und Rechteabgabe vor exec.
+
+[Install]
+Alias=display-manager.service
+WantedBy=graphical.target

@@ -1,0 +1,28 @@
+#!/bin/sh
+set -e
+[ "$1" = configure ] || exit 0
+
+glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+
+# Startbildschirm
+if command -v plymouth-set-default-theme >/dev/null; then
+  plymouth-set-default-theme noxis 2>/dev/null || true
+fi
+
+# Display-Manager: noxis-dm + Greeter-Systemnutzer
+if ! getent passwd noxis-greeter >/dev/null; then
+  adduser --system --group --home /var/lib/noxis-greeter --shell /usr/sbin/nologin \
+    --gecos "Noxis Greeter" noxis-greeter >/dev/null
+fi
+for g in video render input; do getent group "$g" >/dev/null && adduser noxis-greeter "$g" >/dev/null 2>&1 || true; done
+install -d -m 0750 -o noxis-greeter -g noxis-greeter /var/lib/noxis-greeter
+
+if [ -d /etc/systemd/system ]; then
+  for dmsvc in greetd gdm3 lightdm sddm phosh; do
+    systemctl disable "$dmsvc.service" >/dev/null 2>&1 || true
+  done
+  ln -sf /usr/lib/systemd/system/noxis-dm.service /etc/systemd/system/display-manager.service
+  systemctl enable noxis-dm.service >/dev/null 2>&1 || true
+fi
+exit 0

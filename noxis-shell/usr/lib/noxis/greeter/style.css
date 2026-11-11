@@ -1,0 +1,34 @@
+/* Noxis-Greeter */
+window { background: #07070B; color: #F2F3F7; font-family: "Inter", "Noto Sans", sans-serif; }
+.noxis-root { padding: 48px 24px 28px 24px; }
+
+.noxis-clock { font-size: 64px; font-weight: 300; letter-spacing: 2px; margin-top: 24px; }
+.noxis-date  { font-size: 15px; color: alpha(#F2F3F7, 0.6); margin-bottom: 8px; }
+.noxis-logo  { margin-bottom: 18px; }
+.noxis-user  { font-size: 15px; color: alpha(#F2F3F7, 0.7); margin-bottom: 6px; }
+
+.noxis-keypad { margin-top: 4px; }
+.noxis-dots { font-size: 20px; color: #7C8CFF; min-height: 30px; letter-spacing: 2px; }
+.noxis-msg  { font-size: 13px; color: #FF7C8C; min-height: 22px; margin-bottom: 16px; }
+
+.noxis-key {
+  min-width: 72px; min-height: 72px; border-radius: 999px;
+  font-size: 26px; font-weight: 400;
+  background: alpha(#FFFFFF, 0.06); color: #F2F3F7;
+  border: 1px solid alpha(#FFFFFF, 0.08); box-shadow: none;
+}
+.noxis-key:hover  { background: alpha(#FFFFFF, 0.10); }
+.noxis-key:active { background: alpha(#7C8CFF, 0.35); }
+.noxis-key-side   { background: transparent; border-color: transparent; font-size: 22px; }
+.noxis-key-ok     { background: #7C8CFF; color: #07070B; border-color: transparent; font-weight: 600; }
+.noxis-key-ok:active { background: #A3AEFF; }
+
+.noxis-foot  { margin-top: 18px; }
+.noxis-chip  {
+  border-radius: 999px; padding: 6px 16px; font-size: 13px;
+  background: alpha(#FFFFFF, 0.05); color: alpha(#F2F3F7, 0.7);
+  border: 1px solid alpha(#FFFFFF, 0.08); box-shadow: none;
+}
+.noxis-chip:checked { background: alpha(#7C8CFF, 0.22); color: #F2F3F7; border-color: alpha(#7C8CFF, 0.6); }
+.noxis-power { border-radius: 999px; min-width: 40px; min-height: 40px; background: transparent; color: alpha(#F2F3F7, 0.6); border: none; box-shadow: none; }
+.noxis-power:hover { color: #F2F3F7; background: alpha(#FFFFFF, 0.06); }

@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+# ============================================================
+#  Noxis Linux – Kernel für Nothing Phone (3a) aus den Nothing-Quellen
+#  Quelle: github.com/NothingOSS/android_kernel_msm-6.1_nothing_sm7635 (--depth=1)
+#  Läuft in Debian trixie (amd64 oder arm64), am einfachsten über:
+#      sudo ./build-noxis-linux.sh kernel
+#
+#  Ergebnis in $NOXIS_KOUT (Standard: ./out-kernel):
+#    boot.img                                   GKI-Kernel + Noxis-Initramfs (Header v4)
+#    device/linux-bootimage-noxis-asteroids_*.deb   → für build-noxis-linux.sh (NOXIS_DEVICE_DEBS)
+#    device/noxis-kernel-asteroids_*.deb            Module + Ladelisten für das Rootfs
+#    device/noxis-firmware-asteroids_*.deb          nur mit NOXIS_FIRMWARE=<ordner> (adb pull /vendor/firmware)
+#    build-report.txt  SHA256SUMS
+#
+#  Variablen: NOXIS_KWORK NOXIS_KOUT NOXIS_KERNEL_BRANCH NOXIS_JOBS NOXIS_FIRMWARE NOXIS_BOOT_SIZE NOXIS_CMDLINE
+# ============================================================
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="${NOXIS_KERNEL_REPO:-https://github.com/NothingOSS/android_kernel_msm-6.1_nothing_sm7635}"
+BRANCH="${NOXIS_KERNEL_BRANCH:-sm7635/b/mr}"
+KWORK="${NOXIS_KWORK:-$HOME/noxis-kernel-build}"
+KOUT="${NOXIS_KOUT:-$HERE/out-kernel}"
+JOBS="${NOXIS_JOBS:-$(nproc)}"
+BOOT_SIZE="${NOXIS_BOOT_SIZE:-67108864}"          # 64 MiB, mit BOOT_STOCK=<boot.img> automatisch
+CMDLINE="${NOXIS_CMDLINE:-console=tty0 quiet splash loglevel=3 selinux=0 noxis.root=userdata}"
+PKGVER="1.0.0"
+
+SRC="$KWORK/src"; O="$KWORK/obj"; STAGE="$KWORK/stage"; IRD="$KWORK/initramfs"; DEBS="$KWORK/debs"
+MAKEARGS=(ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$O"
+          KCFLAGS="-D__ANDROID_COMMON_KERNEL__ -DNT_PROJECT=Asteroids -Wno-error")
+
+c()    { printf '\033[38;5;111m[noxis-kernel]\033[0m %s\n' "$*"; }
+warn() { printf '\033[33m[warn]\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[31m[fehler]\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Externe Qualcomm/Nothing-Module: Ordner | ROOT-Variable  (Reihenfolge = Abhängigkeiten)
+EXT_MODULES=(
+  "mmrm-driver|MMRM_ROOT"
+  "mm-drivers/hw_fence|MSM_HW_FENCE_ROOT"
+  "mm-drivers/sync_fence|SYNC_FENCE_ROOT"
+  "mm-drivers/msm_ext_display|MSM_EXT_DISPLAY_ROOT"
+  "securemsm-kernel|SSG_MODULE_ROOT"
+  "synx-kernel|SYNX_ROOT"
+  "graphics-kernel|KGSL_MODULE_ROOT"
+  "display-drivers|DISPLAY_ROOT"
+  "touch-drivers|TOUCH_ROOT"
+)
+
+# ------------------------------------------------------------ check
+cmd_check() {
+  local miss=0 t
+  for t in clang ld.lld llvm-ar llvm-objcopy make bc bison flex perl python3 git cpio gzip depmod \
+           mkbootimg dpkg-deb openssl sha256sum; do
+    if command -v "$t" >/dev/null 2>&1; then echo "  ✓ $t"; else echo "  ✗ $t"; miss=1; fi
+  done
+  [ -f /usr/include/libelf.h ] && echo "  ✓ libelf-dev" || { echo "  ✗ libelf-dev"; miss=1; }
+  [ -f /usr/include/openssl/ssl.h ] && echo "  ✓ libssl-dev" || { echo "  ✗ libssl-dev"; miss=1; }
+  [ "$miss" = 0 ] && { c "Alles da (clang $(clang -dumpversion), $JOBS Jobs)."; return 0; }
+  cat <<'EOF'
+
+Debian:  sudo apt install clang lld llvm make bc bison flex perl python3 git cpio kmod mkbootimg \
+                 libelf-dev libssl-dev dpkg-dev ca-certificates
+Sonst:   sudo ./build-noxis-linux.sh kernel   (alles im Debian-Container)
+EOF
+  return 1
+}
+
+# ------------------------------------------------------------ source
+cmd_source() {
+  mkdir -p "$KWORK"
+  if [ -d "$SRC/.git" ]; then
+    c "Quellen aktualisieren ($BRANCH, --depth=1)"
+    git -C "$SRC" fetch -q --depth=1 origin "$BRANCH"
+    git -C "$SRC" reset -q --hard FETCH_HEAD
+    git -C "$SRC" clean -qfdx
+  else
+    c "Nothing-Kernel klonen ($BRANCH, --depth=1, ~2 GB)"
+    git clone -q --depth=1 --single-branch -b "$BRANCH" "$REPO" "$SRC"
+  fi
+  git -C "$SRC" rev-parse HEAD > "$KWORK/commit"
+  c "Commit $(cat "$KWORK/commit")"
+}
+
+# ------------------------------------------------------------ config
+cmd_config() {
+  [ -d "$SRC" ] || cmd_source
+  mkdir -p "$O"
+  local cfg="$SRC/arch/arm64/configs"
+  c "Konfiguration: gki_defconfig + pineapple_GKI + Asteroids + noxis"
+  ( cd "$SRC" && ARCH=arm64 LLVM=1 \
+      scripts/kconfig/merge_config.sh -m -r -O "$O" "$cfg/gki_defconfig" "$cfg/vendor/pineapple_GKI.config" \
+      "$cfg/vendor/Asteroids.config" "$HERE/noxis.config" >/dev/null )
+  make -s -C "$SRC" "${MAKEARGS[@]}" olddefconfig
+  verify_config
+}
+
+verify_config() {  # jede Noxis-Option muss im Ergebnis stehen
+  local bad=0 line key val got
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac
+    key="${line%%=*}"; val="${line#*=}"
+    got=$(grep -E "^$key=|^# $key is not set" "$O/.config" | head -n1 || true)
+    if [ "$val" = n ]; then
+      case "$got" in ""|"# $key is not set"|"$key=n") ;; *) warn "$key soll n sein, ist: $got"; bad=1 ;; esac
+    elif [ "$got" != "$key=$val" ]; then
+      warn "$key=$val nicht übernommen (ist: ${got:-fehlt})"; bad=1
+    fi
+  done < "$HERE/noxis.config"
+  [ "$bad" = 0 ] && c "Alle Noxis-Optionen gesetzt." || warn "Einige Optionen fehlen (Abhängigkeiten) – siehe oben."
+  return 0
+}
+
+# ------------------------------------------------------------ build
+cmd_build() {
+  [ -f "$O/.config" ] || cmd_config
+  c "Kernel + In-Tree-Module bauen ($JOBS Jobs)"
+  if ! make -C "$SRC" "${MAKEARGS[@]}" -j"$JOBS" Image.gz modules >"$KWORK/build.log" 2>&1; then
+    grep -E 'error|Error' "$KWORK/build.log" | tail -n 30 >&2 || true
+    die "Kernel-Build fehlgeschlagen – $KWORK/build.log"
+  fi
+  [ -f "$O/arch/arm64/boot/Image.gz" ] || die "Image.gz fehlt"
+  c "Image.gz: $(du -h "$O/arch/arm64/boot/Image.gz" | cut -f1)"
+  build_external
+}
+
+build_external() {
+  local syms="" entry dir var path ok=() fail=()
+  for entry in "${EXT_MODULES[@]}"; do
+    dir="${entry%%|*}"; var="${entry#*|}"; path="$SRC/vendor/qcom/opensource/$dir"
+    [ -d "$path" ] || { fail+=("$dir (fehlt)"); continue; }
+    c "Externes Modul: $dir"
+    if make -C "$SRC" "${MAKEARGS[@]}" -j"$JOBS" M="$path" KERNEL_SRC="$SRC" "$var=$path" \
+         KBUILD_EXTRA_SYMBOLS="$syms" modules >>"$KWORK/build-ext.log" 2>&1; then
+      ok+=("$dir"); [ -f "$path/Module.symvers" ] && syms="$syms $path/Module.symvers"
+    else
+      fail+=("$dir"); warn "$dir fehlgeschlagen – $KWORK/build-ext.log"
+    fi
+  done
+  printf '%s\n' "${ok[@]}" > "$KWORK/ext-ok"; printf '%s\n' "${fail[@]}" > "$KWORK/ext-fail"
+  c "Externe Module: ${#ok[@]} ok, ${#fail[@]} fehlgeschlagen"
+}
+
+# ------------------------------------------------------------ install
+cmd_install() {
+  [ -f "$O/arch/arm64/boot/Image.gz" ] || cmd_build
+  rm -rf "$STAGE"; mkdir -p "$STAGE"
+  make -s -C "$SRC" "${MAKEARGS[@]}" INSTALL_MOD_PATH="$STAGE" INSTALL_MOD_STRIP=1 modules_install
+  local dir path
+  while read -r dir; do
+    [ -n "$dir" ] || continue; path="$SRC/vendor/qcom/opensource/$dir"
+    make -s -C "$SRC" "${MAKEARGS[@]}" M="$path" INSTALL_MOD_PATH="$STAGE" INSTALL_MOD_STRIP=1 \
+      INSTALL_MOD_DIR=extra modules_install || warn "Installation $dir fehlgeschlagen"
+  done < "$KWORK/ext-ok"
+  KREL=$(cat "$O/include/config/kernel.release")
+  rm -f "$STAGE/lib/modules/$KREL/build" "$STAGE/lib/modules/$KREL/source"
+  depmod -b "$STAGE" "$KREL"
+  echo "$KREL" > "$KWORK/krel"
+  c "Module: $(find "$STAGE/lib/modules/$KREL" -name '*.ko' | wc -l) für $KREL"
+}
+
+# Modulliste → Pfade im Stage (fehlende werden gemeldet)
+resolve_list() {  # $@ = Listen-Dateien → stdout: Modulnamen (ohne .ko), Reihenfolge erhalten, ohne Doppelte/Blocklist
+  local f m seen=" " block
+  block=" $(sed -n 's/^blocklist[[:space:]]\+//p' "$HERE/modules/modules.blocklist" | tr '\n' ' ') "
+  for f in "$@"; do
+    while read -r m; do
+      m="${m%.ko}"; [ -n "$m" ] || continue
+      case "$seen" in *" $m "*) continue ;; esac
+      case "$block" in *" $m "*) continue ;; esac
+      seen="$seen$m "; echo "$m"
+    done < "$f"
+  done
+}
+
+# ------------------------------------------------------------ initramfs
+fetch_static_tools() {  # busybox-static + e2fsck-static (arm64, apt-signiert)
+  local t="$KWORK/static"
+  [ -x "$t/busybox" ] && [ -x "$t/e2fsck" ] && return 0
+  mkdir -p "$t/x"
+  if [ "$(dpkg --print-architecture)" != arm64 ]; then
+    dpkg --print-foreign-architectures | grep -qx arm64 || { dpkg --add-architecture arm64; apt-get update -q >/dev/null; }
+  fi
+  ( cd "$t" && apt-get download -q busybox-static:arm64 e2fsck-static:arm64 >/dev/null )
+  for d in "$t"/*.deb; do dpkg-deb -x "$d" "$t/x"; done
+  cp "$(find "$t/x" -type f -name busybox | head -n1)" "$t/busybox" 2>/dev/null || die "busybox-static (arm64) nicht geladen"
+  cp "$(find "$t/x" -type f -name e2fsck.static | head -n1)" "$t/e2fsck" 2>/dev/null || die "e2fsck-static (arm64) nicht geladen"
+  chmod 0755 "$t/busybox" "$t/e2fsck"
+}
+
+cmd_initramfs() {
+  [ -f "$KWORK/krel" ] || cmd_install
+  KREL=$(cat "$KWORK/krel")
+  fetch_static_tools
+  rm -rf "$IRD"; mkdir -p "$IRD"/{bin,sbin,etc,proc,sys,dev,run,tmp,sysroot,lib/modules/"$KREL"}
+  install -m 0755 "$KWORK/static/busybox" "$IRD/bin/busybox"
+  install -m 0755 "$KWORK/static/e2fsck" "$IRD/sbin/e2fsck"
+  local a
+  for a in sh ash cat ls mkdir mount umount sed grep head sleep echo ln tr uname \
+           modprobe insmod lsmod switch_root ip ifconfig udhcpd telnetd dmesg ps kill reboot poweroff \
+           vi less find blkid df free losetup; do
+    ln -sf busybox "$IRD/bin/$a"
+  done
+  install -m 0755 "$HERE/initramfs/init" "$IRD/init"
+  install -m 0644 "$HERE/initramfs/udhcpd.conf" "$IRD/etc/udhcpd.conf"
+
+  # First-Stage-Module (vendor_boot + recovery: Speicher, USB, Anzeige, Touch)
+  local list="$IRD/lib/modules/$KREL/modules.load.noxis" m p missing=0
+  : > "$list"
+  while read -r m; do
+    p=$(find "$STAGE/lib/modules/$KREL" -name "$m.ko" -print -quit)
+    if [ -n "$p" ]; then
+      mkdir -p "$IRD/lib/modules/$KREL/$(dirname "${p#"$STAGE/lib/modules/$KREL/"}")"
+      cp "$p" "$IRD/lib/modules/$KREL/${p#"$STAGE/lib/modules/$KREL/"}"
+      echo "$m.ko" >> "$list"
+    else
+      missing=$((missing + 1)); echo "$m" >> "$KWORK/initramfs-missing"
+    fi
+  done < <(resolve_list "$HERE/modules/modules.load.vendor_boot" "$HERE/modules/modules.load.recovery")
+  cp "$STAGE/lib/modules/$KREL"/modules.{order,builtin,builtin.modinfo} "$IRD/lib/modules/$KREL/" 2>/dev/null || true
+  depmod -b "$IRD" "$KREL"
+  c "Initramfs: $(grep -c . "$list") Module, $missing nicht gebaut"
+  ( cd "$IRD" && find . -print0 | sort -z | cpio --null -o -H newc -R 0:0 --quiet | gzip -9n ) > "$KWORK/initramfs.cpio.gz"
+  c "initramfs.cpio.gz: $(du -h "$KWORK/initramfs.cpio.gz" | cut -f1)"
+}
+
+# ------------------------------------------------------------ boot.img
+cmd_bootimg() {
+  [ -f "$KWORK/initramfs.cpio.gz" ] || cmd_initramfs
+  mkdir -p "$KOUT"
+  local size="$BOOT_SIZE"
+  [ -n "${BOOT_STOCK:-}" ] && [ -f "$BOOT_STOCK" ] && size=$(stat -c %s "$BOOT_STOCK")
+  mkbootimg --header_version 4 \
+    --kernel "$O/arch/arm64/boot/Image.gz" \
+    --ramdisk "$KWORK/initramfs.cpio.gz" \
+    --cmdline "$CMDLINE" \
+    --os_version 15.0.0 --os_patch_level "$(date +%Y-%m)" \
+    --output "$KOUT/boot.img"
+  local got; got=$(stat -c %s "$KOUT/boot.img")
+  [ "$got" -le "$size" ] || die "boot.img $got Bytes > Partition $size Bytes"
+  c "boot.img: $((got / 1048576)) MiB von $((size / 1048576)) MiB"
+}
+
+# ------------------------------------------------------------ Debian-Pakete
+mkdeb() {  # $1 Name, $2 Wurzelordner, $3 Beschreibung
+  local n="$1" r="$2"
+  mkdir -p "$r/DEBIAN"
+  cat > "$r/DEBIAN/control" <<EOF
+Package: $n
+Version: $PKGVER+$(cut -c1-12 "$KWORK/commit")
+Architecture: arm64
+Maintainer: 3rr0r <noxis@localhost>
+Section: kernel
+Priority: optional
+Description: $3
+EOF
+  dpkg-deb --root-owner-group -Zxz -b "$r" "$KOUT/device/${n}_${PKGVER}_arm64.deb" >/dev/null
+}
+
+cmd_debs() {
+  [ -f "$KOUT/boot.img" ] || cmd_bootimg
+  KREL=$(cat "$KWORK/krel")
+  rm -rf "$DEBS" "$KOUT/device"; mkdir -p "$DEBS" "$KOUT/device"
+
+  local b="$DEBS/bootimage"; mkdir -p "$b/usr/lib/noxis"
+  cp "$KOUT/boot.img" "$b/usr/lib/noxis/boot.img"
+  mkdeb linux-bootimage-noxis-asteroids "$b" "Noxis boot.img (Nothing-GKI $KREL + Initramfs) für Nothing Phone (3a)"
+
+  local k="$DEBS/kernel"; mkdir -p "$k/lib/modules" "$k/etc/modules-load.d" "$k/etc/modprobe.d"
+  cp -a "$STAGE/lib/modules/$KREL" "$k/lib/modules/"
+  resolve_list "$HERE/modules/modules.load.vendor_dlkm" "$HERE/modules/modules.load.system_dlkm" \
+    > "$k/etc/modules-load.d/noxis-asteroids.conf"
+  sed -n 's/^blocklist[[:space:]]\+/blacklist /p' "$HERE/modules/modules.blocklist" > "$k/etc/modprobe.d/noxis-asteroids.conf"
+  mkdeb noxis-kernel-asteroids "$k" "Noxis Kernelmodule $KREL für Nothing Phone (3a)"
+
+  if [ -n "${NOXIS_FIRMWARE:-}" ]; then
+    [ -d "$NOXIS_FIRMWARE" ] || die "NOXIS_FIRMWARE=$NOXIS_FIRMWARE fehlt"
+    local f="$DEBS/firmware"; mkdir -p "$f/vendor/firmware"
+    cp -a "$NOXIS_FIRMWARE"/. "$f/vendor/firmware/"
+    mkdeb noxis-firmware-asteroids "$f" "Firmware aus /vendor/firmware (nur lokal, nicht weitergeben)"
+  fi
+  c "Pakete: $(ls "$KOUT/device" | tr '\n' ' ')"
+}
+
+# ------------------------------------------------------------ report
+cmd_report() {
+  local r="$KOUT/build-report.txt"
+  {
+    echo "Noxis Kernel – $(date -u +%Y-%m-%dT%H:%MZ)"
+    echo "Quelle:  $REPO ($BRANCH)"
+    echo "Commit:  $(cat "$KWORK/commit")"
+    echo "Release: $(cat "$KWORK/krel")"
+    echo "Compiler: $(clang --version | head -n1)"
+    echo "Externe Module ok:";            sed 's/^/  /' "$KWORK/ext-ok"
+    echo "Externe Module fehlgeschlagen:"; sed 's/^/  /' "$KWORK/ext-fail"
+    echo "Initramfs-Module nicht gebaut: $(grep -c . "$KWORK/initramfs-missing" 2>/dev/null || echo 0)"
+    [ -s "$KWORK/initramfs-missing" ] && sed 's/^/  /' "$KWORK/initramfs-missing"
+  } > "$r"
+  ( cd "$KOUT" && sha256sum boot.img device/*.deb > SHA256SUMS )
+  c "Fertig → $KOUT  (Bericht: build-report.txt)"
+}
+
+cmd_all() { cmd_check; cmd_source; cmd_config; cmd_build; cmd_install; cmd_initramfs; cmd_bootimg; cmd_debs; cmd_report; }
+
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0   # sourcebar für Tests
+case "${1:-}" in
+  check) cmd_check ;; source) cmd_source ;; config) cmd_config ;; build) cmd_build ;;
+  install) cmd_install ;; initramfs) cmd_initramfs ;; bootimg) cmd_bootimg ;; debs) cmd_debs ;;
+  report) cmd_report ;; all) cmd_all ;;
+  *) sed -n '2,17p' "$0" ;;
+esac

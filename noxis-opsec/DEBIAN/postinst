@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+UG=/etc/usbguard/usbguard-daemon.conf
+if [ "$1" = configure ]; then
+	# USBGuard: beim Start vorhandene Geräte erlauben, neue nach Sperrzustand
+	if [ -f "$UG" ]; then
+		sed -i -e 's/^ImplicitPolicyTarget=.*/ImplicitPolicyTarget=block/' \
+		       -e 's/^PresentDevicePolicy=.*/PresentDevicePolicy=allow/' \
+		       -e 's/^InsertedDevicePolicy=.*/InsertedDevicePolicy=apply-policy/' "$UG"
+		grep -q '^IPCAllowedUsers=' "$UG" || echo 'IPCAllowedUsers=root' >> "$UG"
+	fi
+	# Kein Klartext-DNS über /etc/resolv.conf am resolved vorbei
+	ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+		sysctl --system >/dev/null 2>&1 || true
+	fi
+	for u in noxis-firewall.service noxis-mullvad-setup.service noxis-mullvad-setup.timer \
+	         noxis-usblock.service usbguard.service systemd-resolved.service \
+	         mullvad-daemon.service mullvad-early-boot-blocking.service; do
+		systemctl enable "$u" >/dev/null 2>&1 || true
+	done
+	systemctl mask --quiet systemd-coredump.socket 2>/dev/null || true
+	if [ -d /run/systemd/system ]; then
+		systemctl restart noxis-firewall.service systemd-resolved.service || true
+		systemctl start noxis-usblock.service noxis-mullvad-setup.timer || true
+	fi
+fi
+exit 0

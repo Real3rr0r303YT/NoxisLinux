@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+  if [ "$(readlink /etc/systemd/system/display-manager.service 2>/dev/null)" = /usr/lib/systemd/system/noxis-dm.service ]; then
+    rm -f /etc/systemd/system/display-manager.service
+  fi
+  [ "$1" = purge ] && { deluser --system noxis-greeter >/dev/null 2>&1 || true; }
+  glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+fi
+exit 0

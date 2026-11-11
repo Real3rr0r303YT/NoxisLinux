@@ -1,0 +1,156 @@
+#!/usr/bin/python3
+"""Noxis Desktop-Modus: externer Bildschirm → großer Desktop, Bildschirmtastatur aus.
+Läuft in der Phosh-Sitzung (XDG-Autostart), nutzt wlr-randr + gsettings."""
+import configparser
+import json
+import os
+import subprocess
+import sys
+import time
+
+CONF_PATHS = ["/etc/noxis/dock.conf", os.path.expanduser("~/.config/noxis/dock.conf")]
+INTERNAL = ("DSI", "eDP", "LVDS")
+OSK = ("org.gnome.desktop.a11y.applications", "screen-keyboard-enabled")
+
+
+def load_conf(paths=None):
+    cp = configparser.ConfigParser()
+    cp.read(paths or CONF_PATHS)
+    s = cp["dock"] if cp.has_section("dock") else {}
+    return {
+        "internal": s.get("internal", "on"),          # on | off  (Phone-Display im Desktop-Modus)
+        "position": s.get("position", "right"),        # right | left | above
+        "scale": float(s.get("scale", "1.0")),
+        "osk": s.get("osk", "off"),                    # Bildschirmtastatur im Desktop-Modus
+        "interval": float(s.get("interval", "2")),
+    }
+
+
+def run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+
+def outputs():
+    r = run(["wlr-randr", "--json"])
+    if r.returncode != 0:
+        return None
+    return json.loads(r.stdout)
+
+
+def is_internal(o):
+    return o["name"].startswith(INTERNAL)
+
+
+def current_mode(o):
+    for m in o.get("modes", []):
+        if m.get("current"):
+            return m
+    for m in o.get("modes", []):
+        if m.get("preferred"):
+            return m
+    return (o.get("modes") or [{"width": 1920, "height": 1080}])[0]
+
+
+def logical_size(o):
+    m = current_mode(o)
+    w, h = m["width"], m["height"]
+    if o.get("transform") in ("90", "270", "flipped-90", "flipped-270"):
+        w, h = h, w
+    s = o.get("scale") or 1.0
+    return int(w / s), int(h / s)
+
+
+def plan(outs, conf, desktop_forced=False):
+    """Liefert (docked, [wlr-randr-Argumente]) für den Zielzustand."""
+    internal = [o for o in outs if is_internal(o)]
+    external = [o for o in outs if not is_internal(o)]
+    args = []
+    if not external:
+        for o in internal:
+            if not o.get("enabled"):
+                args += ["--output", o["name"], "--on"]
+        return desktop_forced, args
+    ext, intl = external[0], (internal[0] if internal else None)
+    ext_args = ["--output", ext["name"], "--on", "--scale", f"{conf['scale']:g}"]
+    if intl is None or conf["internal"] == "off":
+        args = ext_args + ["--pos", "0,0"]
+        if intl is not None:
+            args += ["--output", intl["name"], "--off"]
+    else:
+        iw, _ih = logical_size(intl)
+        ew, eh = logical_size(dict(ext, scale=conf["scale"]))
+        if conf["position"] == "left":
+            ext_pos, int_pos = "0,0", f"{ew},0"
+        elif conf["position"] == "above":
+            ext_pos, int_pos = "0,0", f"0,{eh}"
+        else:
+            ext_pos, int_pos = f"{iw},0", "0,0"
+        args = ext_args + ["--pos", ext_pos, "--output", intl["name"], "--on", "--pos", int_pos]
+    for o in external[1:]:  # weitere externe Bildschirme nur anschalten
+        args += ["--output", o["name"], "--on"]
+    return True, args
+
+
+def gget(schema, key):
+    r = run(["gsettings", "get", schema, key])
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def gset(schema, key, value):
+    run(["gsettings", "set", schema, key, value])
+
+
+class Dock:
+    def __init__(self, conf, mode):
+        self.conf = conf
+        self.forced = mode == "desktop"
+        self.docked = None
+        self.saved_osk = None
+        self.last_names = None
+
+    def step(self):
+        outs = outputs()
+        if outs is None:
+            return
+        names = tuple(sorted(o["name"] for o in outs))
+        docked, args = plan(outs, self.conf, self.forced)
+        if names == self.last_names and docked == self.docked:
+            return
+        self.last_names = names
+        if args:
+            run(["wlr-randr"] + args)
+        if docked != self.docked:
+            self.apply_docked(docked)
+        self.docked = docked
+
+    def apply_docked(self, docked):
+        if docked:
+            if self.saved_osk is None:
+                self.saved_osk = gget(*OSK)
+            if self.conf["osk"] == "off":
+                gset(*OSK, "false")
+            log("Desktop-Modus an")
+        else:
+            if self.saved_osk is not None:
+                gset(*OSK, self.saved_osk)
+                self.saved_osk = None
+            log("Mobil-Modus")
+
+
+def log(msg):
+    print(f"noxis-dock: {msg}", file=sys.stderr, flush=True)
+
+
+def main():
+    conf = load_conf()
+    d = Dock(conf, os.environ.get("NOXIS_MODE", "mobile"))
+    while True:
+        try:
+            d.step()
+        except (subprocess.SubprocessError, ValueError, KeyError) as e:
+            log(f"Fehler: {e}")
+        time.sleep(conf["interval"])
+
+
+if __name__ == "__main__":
+    main()

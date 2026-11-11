@@ -1,0 +1,260 @@
+#!/usr/bin/python3
+"""Noxis-Greeter: Anmeldebildschirm für greetd (läuft in cage)."""
+import os
+import subprocess
+import sys
+import threading
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+import core  # noqa: E402
+from greetd_ipc import Greetd, GreetdError  # noqa: E402
+
+BRAND = os.environ.get("NOXIS_BRANDING", "/usr/share/noxis/branding")
+HERE = os.path.dirname(os.path.realpath(__file__))
+WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+          "August", "September", "Oktober", "November", "Dezember"]
+
+
+class Greeter(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Noxis")
+        self.conf = core.load_conf()
+        self.user = core.pick_user(self.conf)
+        self.pin = core.PinState()
+        self.failures = 0
+        self.locked_until = 0.0
+        self.busy = False
+        self.mode = core.default_mode()
+
+        overlay = Gtk.Overlay()
+        self.set_child(overlay)
+        self.bg = Gtk.Picture()
+        self.bg.set_content_fit(Gtk.ContentFit.COVER)
+        self.bg.set_can_shrink(True)
+        overlay.set_child(self.bg)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        root.add_css_class("noxis-root")
+        overlay.add_overlay(root)
+
+        # Kopf: Uhr + Datum
+        self.clock = Gtk.Label(css_classes=["noxis-clock"])
+        self.date = Gtk.Label(css_classes=["noxis-date"])
+        root.append(self.clock)
+        root.append(self.date)
+
+        spacer = Gtk.Box(vexpand=True)
+        root.append(spacer)
+
+        # Logo
+        logo = Gtk.Picture.new_for_filename(os.path.join(BRAND, "noxis-wordmark.svg"))
+        logo.set_content_fit(Gtk.ContentFit.CONTAIN)
+        logo.set_size_request(220, 60)
+        logo.set_halign(Gtk.Align.CENTER)
+        logo.add_css_class("noxis-logo")
+        root.append(logo)
+
+        if self.conf["show_user"] and self.user:
+            root.append(Gtk.Label(label=self.user, css_classes=["noxis-user"]))
+
+        # PIN-Punkte + Meldung
+        self.dots = Gtk.Label(label=" ", css_classes=["noxis-dots"])
+        self.msg = Gtk.Label(label=" ", css_classes=["noxis-msg"])
+        root.append(self.dots)
+        root.append(self.msg)
+
+        # Tastenfeld
+        self.grid = Gtk.Grid(row_spacing=14, column_spacing=22, halign=Gtk.Align.CENTER)
+        self.grid.add_css_class("noxis-keypad")
+        root.append(self.grid)
+        self.build_keypad()
+
+        root.append(Gtk.Box(vexpand=True))
+
+        # Fuß: Modus + Energie
+        foot = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, css_classes=["noxis-foot"])
+        self.mode_btns = {}
+        group = None
+        for key in ("mobile", "desktop"):
+            b = Gtk.ToggleButton(label=core.SESSIONS[key]["label"], css_classes=["noxis-chip"])
+            if group:
+                b.set_group(group)
+            group = group or b
+            b.set_active(key == self.mode)
+            b.connect("toggled", self.on_mode, key)
+            foot.append(b)
+            self.mode_btns[key] = b
+        foot.append(Gtk.Box(hexpand=False, width_request=18))
+        for icon, label, cmd in (("system-reboot-symbolic", "Neustart", "reboot"),
+                                 ("system-shutdown-symbolic", "Ausschalten", "poweroff")):
+            b = Gtk.Button(icon_name=icon, tooltip_text=label, css_classes=["noxis-power"])
+            b.connect("clicked", self.on_power, cmd)
+            foot.append(b)
+        root.append(foot)
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+
+        self.update_background()
+        self.tick()
+        GLib.timeout_add_seconds(1, self.tick)
+        GLib.timeout_add_seconds(2, self.poll_outputs)
+        if not self.user:
+            self.show_msg("Kein Benutzer gefunden (/etc/noxis/greeter.conf)")
+
+    # ------------------------------------------------------------- UI
+    def build_keypad(self):
+        child = self.grid.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.grid.remove(child)
+            child = nxt
+        for i, k in enumerate(core.keypad(self.conf["shuffle"])):
+            b = Gtk.Button(label=k, css_classes=["noxis-key"])
+            if k == "⌫":
+                b.add_css_class("noxis-key-side")
+                b.connect("clicked", lambda *_: self.on_back())
+            elif k == "✓":
+                b.add_css_class("noxis-key-ok")
+                b.connect("clicked", lambda *_: self.submit())
+            else:
+                b.connect("clicked", lambda _b, d=k: self.on_digit(d))
+            self.grid.attach(b, i % 3, i // 3, 1, 1)
+
+    def update_background(self):
+        w = self.get_width() or 1080
+        h = self.get_height() or 2392
+        name = "noxis-wallpaper-landscape.svg" if w > h else "noxis-wallpaper-portrait.svg"
+        self.bg.set_filename(os.path.join(BRAND, name))
+
+    def refresh_dots(self):
+        self.dots.set_label("●  " * len(self.pin) if len(self.pin) else " ")
+
+    def show_msg(self, text):
+        self.msg.set_label(text or " ")
+
+    def tick(self):
+        t = time.localtime()
+        self.clock.set_label(time.strftime("%H:%M", t))
+        self.date.set_label(f"{WEEKDAYS[t.tm_wday]}, {t.tm_mday}. {MONTHS[t.tm_mon - 1]}")
+        rest = int(self.locked_until - time.time())
+        if rest > 0:
+            self.show_msg(f"Zu viele Fehlversuche – {rest} s warten")
+        elif self.locked_until and not self.busy:
+            self.locked_until = 0
+            self.show_msg(" ")
+        return True
+
+    def poll_outputs(self):
+        self.update_background()
+        want = core.default_mode()
+        if want != self.mode and not self.mode_btns[want].get_active():
+            self.mode_btns[want].set_active(True)  # Bildschirm an-/abgesteckt → Modus folgt
+        return True
+
+    # ------------------------------------------------------------- Eingaben
+    def on_mode(self, btn, key):
+        if btn.get_active():
+            self.mode = key
+
+    def on_power(self, _b, cmd):
+        subprocess.Popen(["systemctl", cmd])
+
+    def on_digit(self, d):
+        if self.busy or time.time() < self.locked_until:
+            return
+        self.pin.add(d)
+        self.refresh_dots()
+        n = self.conf["pin_length"]
+        if n and len(self.pin) == n:
+            self.submit()
+
+    def on_back(self):
+        if not self.busy:
+            self.pin.back()
+            self.refresh_dots()
+
+    def on_key(self, _ctrl, keyval, _code, _state):
+        name = Gdk.keyval_name(keyval) or ""
+        if name.startswith("KP_") and name[3:].isdigit():
+            name = name[3:]
+        if len(name) == 1 and name.isdigit():
+            self.on_digit(name)
+        elif name == "BackSpace":
+            self.on_back()
+        elif name in ("Return", "KP_Enter"):
+            self.submit()
+        elif name == "Escape":
+            self.pin.take()
+            self.refresh_dots()
+        else:
+            return False
+        return True
+
+    # ------------------------------------------------------------- Anmeldung
+    def submit(self):
+        if self.busy or not len(self.pin) or not self.user:
+            return
+        if time.time() < self.locked_until:
+            return
+        self.busy = True
+        pin = self.pin.take()
+        self.refresh_dots()
+        self.show_msg("Prüfe …")
+        s = core.SESSIONS[self.mode]
+        threading.Thread(target=self._login, args=(pin, s["cmd"], s["env"]), daemon=True).start()
+
+    def _login(self, pin, cmd, env):
+        try:
+            g = Greetd()
+            try:
+                ok, err = g.login(self.user, pin, cmd, env)
+            finally:
+                g.close()
+        except (GreetdError, OSError) as e:
+            ok, err = False, f"greetd: {e}"
+        GLib.idle_add(self._done, ok, err)
+
+    def _done(self, ok, err):
+        self.busy = False
+        if ok:
+            self.get_application().quit()
+            return False
+        self.failures += 1
+        wait = core.backoff(self.failures)
+        if wait:
+            self.locked_until = time.time() + wait
+        self.show_msg(err)
+        if self.conf["shuffle"]:
+            self.build_keypad()  # nach jedem Fehlversuch neu mischen
+        return False
+
+
+def main():
+    app = Gtk.Application(application_id="org.noxis.Greeter")
+
+    def activate(a):
+        css = Gtk.CssProvider()
+        css.load_from_path(os.path.join(HERE, "style.css"))
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        Gtk.Settings.get_default().set_property("gtk-application-prefer-dark-theme", True)
+        win = Greeter(a)
+        win.fullscreen()
+        win.present()
+
+    app.connect("activate", activate)
+    return app.run([])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

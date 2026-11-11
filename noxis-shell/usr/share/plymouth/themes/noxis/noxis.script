@@ -1,0 +1,35 @@
+# Noxis – Plymouth-Skript: Logo mittig, Wortmarke darunter, pulsierender Punkt, PIN-Abfrage (LUKS)
+Window.SetBackgroundTopColor(0.027, 0.027, 0.043);
+Window.SetBackgroundBottomColor(0.020, 0.020, 0.031);
+
+logo.image = Image("logo.png");
+logo.sprite = Sprite(logo.image);
+logo.x = Window.GetX() + Window.GetWidth() / 2 - logo.image.GetWidth() / 2;
+logo.y = Window.GetY() + Window.GetHeight() / 2 - logo.image.GetHeight() / 2 - 40;
+logo.sprite.SetPosition(logo.x, logo.y, 1);
+
+word.image = Image("wordmark.png");
+word.sprite = Sprite(word.image);
+word.sprite.SetPosition(Window.GetX() + Window.GetWidth() / 2 - word.image.GetWidth() / 2,
+                        logo.y + logo.image.GetHeight() + 60, 1);
+
+t = 0;
+fun refresh() {
+  t++;
+  logo.sprite.SetOpacity(0.75 + 0.25 * Math.Sin(t / 18));
+}
+Plymouth.SetRefreshFunction(refresh);
+
+# Passwortabfrage (z. B. verschlüsselte Partition)
+fun display_password(prompt, bullets) {
+  s = "";
+  for (i = 0; i < bullets; i++) s += "● ";
+  msg.image = Image.Text(prompt + "\n" + s, 0.95, 0.95, 0.97);
+  msg.sprite = Sprite(msg.image);
+  msg.sprite.SetPosition(Window.GetX() + Window.GetWidth() / 2 - msg.image.GetWidth() / 2,
+                         Window.GetY() + Window.GetHeight() * 0.78, 2);
+  msg.sprite.SetOpacity(1);
+}
+Plymouth.SetDisplayPasswordFunction(display_password);
+fun display_normal() { if (msg.sprite) msg.sprite.SetOpacity(0); }
+Plymouth.SetDisplayNormalFunction(display_normal);

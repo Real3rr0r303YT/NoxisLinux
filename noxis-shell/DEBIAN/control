@@ -1,0 +1,16 @@
+Package: noxis-shell
+Version: 1.0.0
+Architecture: all
+Maintainer: 3rr0r <https://github.com/Real3rr0r303YT>
+Section: x11
+Priority: optional
+Depends: cage, libpam-modules, libpam-runtime, adduser, python3, python3-gi, gir1.2-gtk-4.0, librsvg2-common, phosh, wlr-randr, libglib2.0-bin
+Recommends: plymouth, fonts-inter, gnome-network-displays
+Conflicts: phrog
+Provides: x-display-manager
+Description: Noxis Linux – Anmeldung, Branding und Desktop-Modus
+ Eigener Display-Manager (noxis-dm, PAM + logind) mit GTK4-Greeter in
+ cage, gemischtem PIN-Feld und
+ Wartezeit nach Fehlversuchen, Noxis-Logos, Hintergründe und
+ Plymouth-Startbildschirm, automatischer Desktop-Modus für externe
+ Bildschirme (wlr-randr, Bildschirmtastatur aus).

@@ -1,0 +1,12 @@
+[org.gnome.desktop.background]
+picture-uri='file:///usr/share/backgrounds/noxis/noxis-portrait.png'
+picture-uri-dark='file:///usr/share/backgrounds/noxis/noxis-portrait.png'
+picture-options='zoom'
+primary-color='#07070B'
+
+[org.gnome.desktop.screensaver]
+picture-uri='file:///usr/share/backgrounds/noxis/noxis-portrait.png'
+
+[org.gnome.desktop.interface]
+color-scheme='prefer-dark'
+font-name='Inter 11'

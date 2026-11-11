@@ -1,0 +1,17 @@
+[Unit]
+Description=Noxis: USB-C-Datenverbindungen sperren, solange das Gerät gesperrt ist
+After=dbus.service usbguard.service systemd-logind.service
+Wants=usbguard.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/noxis/usblock.py
+Restart=always
+RestartSec=2
+ProtectHome=yes
+PrivateTmp=yes
+RuntimeDirectory=noxis
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target
