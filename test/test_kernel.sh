@@ -41,9 +41,9 @@ if [ -n "$KSRC" ] && [ -d "$KSRC/scripts/kconfig" ]; then
   t "CFI_CLANG stays on"            grep -qx 'CONFIG_CFI_CLANG=y' "$O/.config"
   echo 'CONFIG_DEVTMPFS=n' > "$T/frag"; sed -i 's/^CONFIG_DEVTMPFS=y$/# CONFIG_DEVTMPFS is not set/' "$O/.config"
   out=$(verify_config 2>&1); echo "$out" | grep -q "CONFIG_DEVTMPFS=y not applied" && ok "verify_config reports a missing option" || bad "verify_config misses errors"
-  for d in mmrm-driver mm-drivers/hw_fence mm-drivers/sync_fence mm-drivers/msm_ext_display securemsm-kernel synx-kernel graphics-kernel display-drivers touch-drivers; do
+  for d in mmrm-driver mm-drivers/hw_fence mm-drivers/sync_fence mm-drivers/msm_ext_display securemsm-kernel synx-kernel graphics-kernel display-drivers touch-drivers wlan/platform wlan/qcacld-3.0 datarmnet/core datarmnet-ext/mem dataipa bt-kernel; do
     [ -d "$KSRC/vendor/qcom/opensource/$d" ] || { bad "external module missing: $d"; continue; }
-  done; ok "external module folders present (9)"
+  done; ok "external module folders present (15)"
 else
   echo "  – no kernel path: config tests skipped"
 fi

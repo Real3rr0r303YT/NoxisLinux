@@ -1,0 +1,31 @@
+#!/bin/sh
+# Noxis – start the Qualcomm remote processors and radios on the Nothing Phone (3a):
+# ADSP (audio/sensors/charger), modem + WLAN firmware (MPSS), CDSP, then WLAN calibration.
+# Same steps Android's init.target.rc does, without Android.
+set -u
+SYS=${NOXIS_SYS:-/sys}
+log() { echo "noxis-radios: $*"; }
+
+if [ -w "$SYS/kernel/boot_adsp/boot" ]; then
+  echo 1 > "$SYS/kernel/boot_adsp/boot" && log "adsp: boot requested"
+fi
+
+for r in "$SYS"/class/remoteproc/remoteproc*; do
+  [ -r "$r/state" ] || continue
+  name=$(cat "$r/name" 2>/dev/null || basename "$r")
+  state=$(cat "$r/state" 2>/dev/null)
+  if [ "$state" = offline ]; then
+    if echo start > "$r/state" 2>/dev/null; then log "$name: started"; else log "$name: start failed"; fi
+  else
+    log "$name: $state"
+  fi
+done
+
+# WLAN (WCN6750 via icnss2): file system with firmware is ready → driver may load
+if [ -w "$SYS/kernel/cnss/fs_ready" ]; then
+  echo 1 > "$SYS/kernel/cnss/fs_ready" && log "wlan: fs_ready"
+fi
+if [ -z "${NOXIS_SYS:-}" ]; then
+  modprobe -q qca_cld3_qca6750 2>/dev/null && log "wlan: qca_cld3_qca6750 loaded" || log "wlan: driver not loaded"
+fi
+exit 0

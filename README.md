@@ -86,8 +86,10 @@ Other options: `NOXIS_USER=noxis NOXIS_PIN=147147 NOXIS_DEVICE_DEBS=<folder> BOO
 | 3 | Image: `rootfs.img` (ext4) + sparse, SHA-256, auto-cleanup | **done, tested** |
 | 4 | Kernel from `NothingOSS/android_kernel_msm-6.1_nothing_sm7635` + own modules + initramfs → `boot.img` | **script done, config tested, build untested** |
 | 5 | First boot: UFS, USB debug network, systemd | waiting for a device test |
-| 6 | Display/touch/GPU via Qualcomm drivers (msm_drm, kgsl, focaltech) under Phosh | open |
-| 7 | Wi-Fi (qcacld-3.0), modem, audio, camera | open |
+| 6 | Display/touch/GPU via Qualcomm drivers (msm_drm, kgsl, focaltech) under Phosh | built, waiting for a device test |
+| 7 | Wi-Fi (WCN6750: icnss2 + qcacld-3.0), modem (QRTR, rmtfs, pd-mapper, tqftpserv, ModemManager), Bluetooth (btpower + hci_uart qca) | **built + bring-up written, waiting for a device test** |
+| 8 | Audio (ADSP/AudioReach), calls with audio, GPS | open |
+| 9 | Camera | open (Qualcomm camera stack is Android-only) |
 
 **Why it is hard:** Droidian (Halium/libhybris) supports vendor partitions up to Android 13 (api33); the 3a ships an Android 15 vendor with a GKI kernel.
 Mainline Linux on the 3a currently supports only framebuffer, flash LED and debug UART – hence the own kernel build from the Nothing sources.
@@ -174,8 +176,27 @@ fastboot flash userdata rootfs-sparse.img
 fastboot reboot
 ```
 
-Firmware for Wi-Fi/modem/GPU (from Android beforehand): `adb pull /vendor/firmware ~/noxis-fw`, then
-`NOXIS_FIRMWARE=~/noxis-fw sudo -E ./build-noxis-linux.sh kernel` – keep that package local.
+Firmware for Wi-Fi, Bluetooth, GPU and DSPs – copy it from your own phone **while it still runs Android** (USB debugging on):
+
+```bash
+./tools/pull-firmware.sh ~/noxis-firmware
+NOXIS_FIRMWARE=~/noxis-firmware/firmware sudo -E ./build-noxis-linux.sh kernel
+```
+
+The modem firmware does not need copying: the initramfs mounts the phone's own `modem` and `dsp` partitions read-only.
+Firmware is proprietary – the package stays on your machine and never goes into this repository.
+
+## 4b. Hardware bring-up (`noxis-hw`)
+
+| Part | How it works on Noxis |
+|---|---|
+| Firmware | `noxis-firmware-links` links `/vendor/firmware_mnt/image` (modem partition), `/vendor/firmware` and `/vendor/dsp` into `/lib/firmware` before modules load – real Debian firmware is never replaced |
+| Remote processors | `noxis-radios` boots the ADSP (`/sys/kernel/boot_adsp`), starts offline remoteprocs (modem, CDSP), like Android's `init.target.rc` |
+| Wi-Fi | WCN6750 via `icnss2` + `qca_cld3_qca6750` (built from Nothing's sources, `volcano_gki_qca6750` profile), `fs_ready` signal → `wlan0` in NetworkManager, random MAC |
+| Mobile network | QRTR (in-kernel name service) + `rmtfs` (modem storage via the `rmtfs` UIO region) + `pd-mapper` + `tqftpserv` → ModemManager (QMI over QRTR), data over `rmnet`/IPA |
+| Bluetooth | `noxis-btpower` switches the rail (`/dev/btpower`, ioctl `0xbfad`), `btattach -P qca` on `/dev/ttyHS0` → BlueZ |
+
+All traffic – Wi-Fi and mobile data – still leaves only through the Mullvad tunnel (`noxis-firewall`).
 
 ## 5. Shell (`noxis-shell`)
 
@@ -202,6 +223,7 @@ sudo ./test/test_build.sh <arkenfox/user.js>         # 25  build flow, real GPG/
 python3 test/test_shell.py                           # 78  protocol, PIN, lockout, displays, status icons, branding
 sudo python3 test/test_dm.py                         # 26  noxis-dm with real PAM, fork, privilege drop
 python3 test/test_locale.py                          # 73  7 languages, MCC → time zone, setup, build prompt
+./test/test_hw.sh                                    # 27  firmware links, radio bring-up, Bluetooth power, units
 dbus-run-session -- python3 test/test_usblock.py     # 8   USB lock over a real D-Bus
 sudo ./test/test_firewall.sh                         #     packet test in network namespaces
 ```

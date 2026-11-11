@@ -1,0 +1,14 @@
+[Unit]
+Description=Noxis: link Android firmware into /lib/firmware
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-modules-load.service systemd-udevd.service
+ConditionPathExists=/vendor
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/noxis/hw/noxis-firmware-links
+
+[Install]
+WantedBy=sysinit.target

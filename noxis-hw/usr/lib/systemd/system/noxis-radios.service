@@ -1,0 +1,13 @@
+[Unit]
+Description=Noxis: start modem, WLAN and DSPs (Qualcomm remote processors)
+After=systemd-modules-load.service noxis-firmware-links.service pd-mapper.service tqftpserv.service rmtfs.service
+Wants=pd-mapper.service tqftpserv.service rmtfs.service
+Before=NetworkManager.service ModemManager.service bluetooth.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/noxis/hw/noxis-radios
+
+[Install]
+WantedBy=multi-user.target

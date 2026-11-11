@@ -1,0 +1,14 @@
+Package: noxis-hw-asteroids
+Version: 1.0.0
+Architecture: all
+Maintainer: 3rr0r <https://github.com/Real3rr0r303YT>
+Section: admin
+Priority: optional
+Depends: python3, kmod
+Recommends: rmtfs, pd-mapper, tqftpserv, qrtr-tools, modemmanager, bluez, network-manager
+Description: Noxis Linux – hardware bring-up for the Nothing Phone (3a)
+ Links the Android firmware (modem/dsp partitions, /vendor/firmware) into
+ /lib/firmware, starts the Qualcomm remote processors (ADSP, modem, CDSP),
+ signals the WLAN driver (icnss2/qca_cld3_qca6750), powers and attaches the
+ WCN6750 Bluetooth controller and hands Wi-Fi and mobile data to
+ NetworkManager/ModemManager (QRTR, rmtfs, pd-mapper, tqftpserv).

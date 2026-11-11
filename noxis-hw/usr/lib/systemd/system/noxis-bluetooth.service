@@ -1,0 +1,16 @@
+[Unit]
+Description=Noxis: attach the WCN6750 Bluetooth controller (hci_uart, qca)
+After=noxis-radios.service
+Before=bluetooth.service
+ConditionPathExists=/dev/btpower
+
+[Service]
+Type=simple
+ExecStartPre=/usr/lib/noxis/hw/noxis-btpower on
+ExecStart=/usr/bin/btattach -B /dev/ttyHS0 -P qca
+ExecStopPost=-/usr/lib/noxis/hw/noxis-btpower off
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=bluetooth.target

@@ -1,0 +1,25 @@
+#!/bin/sh
+# Noxis – make the Android firmware visible in the standard Linux firmware path.
+# Sources: /vendor/firmware (rootfs, from noxis-firmware-asteroids) and the modem/dsp
+# partitions mounted read-only by the initramfs. Only symlinks are created in /lib/firmware.
+set -u
+FW_ROOT=${NOXIS_FW_ROOT:-}
+DEST="$FW_ROOT/lib/firmware"
+mkdir -p "$DEST/qca"
+n=0
+for src in "$FW_ROOT/vendor/firmware_mnt/image" "$FW_ROOT/vendor/firmware" "$FW_ROOT/vendor/dsp"; do
+  [ -d "$src" ] || continue
+  for f in "$src"/*; do
+    [ -e "$f" ] || continue
+    name=$(basename "$f")
+    [ -e "$DEST/$name" ] && [ ! -L "$DEST/$name" ] && continue   # never replace real Debian firmware
+    [ -L "$DEST/$name" ] && continue                              # first source wins (modem image first)
+    ln -s "${f#"$FW_ROOT"}" "$DEST/$name" && n=$((n + 1))
+  done
+done
+# Bluetooth (WCN6750): BlueZ/btqca looks for qca/msbtfw11.* and qca/msnv11.*
+for f in "$DEST"/msbtfw* "$DEST"/msnv* "$DEST"/apbtfw* "$DEST"/apnv*; do
+  [ -e "$f" ] || [ -L "$f" ] || continue
+  ln -sf "$(readlink "$f" 2>/dev/null || echo "$f")" "$DEST/qca/$(basename "$f")"
+done
+echo "noxis-firmware-links: $n links"

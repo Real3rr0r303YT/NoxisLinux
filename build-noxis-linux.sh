@@ -63,7 +63,7 @@ PKG_BASE="systemd-sysv,systemd-resolved,systemd-timesyncd,dbus-user-session,sudo
 PKG_NET="network-manager,modemmanager,wpasupplicant,bluez,nftables,wireguard-tools,usbguard"
 PKG_UI="phosh-core,cage,gir1.2-gtk-4.0,librsvg2-common,wlr-randr,fonts-inter,squeekboard,pipewire,pipewire-pulse,wireplumber,fonts-noto-core,python3,python3-gi"
 PKG_APPS="firefox-esr,gnome-calls,chatty"
-PKG_OPTIONAL="mobile-config-firefox waydroid phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays"
+PKG_OPTIONAL="mobile-config-firefox waydroid phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs pd-mapper tqftpserv qrtr-tools bluez-tools"
 
 # ------------------------------------------------------------ language + time zone
 LANG_CODES=(de tr en fr bg ru uk)
@@ -157,6 +157,11 @@ cmd_opsec() {
   find "$pkg" -name __pycache__ -prune -exec rm -r {} +
   dpkg-deb --root-owner-group --build "$pkg" "$DL/noxis-shell_${VERSION}_all.deb" >/dev/null
   c "built noxis-shell_${VERSION}_all.deb"
+  pkg="$HERE/noxis-hw"
+  sed -i "s/^Version: .*/Version: $VERSION/" "$pkg/DEBIAN/control"
+  find "$pkg" -name __pycache__ -prune -exec rm -r {} +
+  dpkg-deb --root-owner-group --build "$pkg" "$DL/noxis-hw-asteroids_${VERSION}_all.deb" >/dev/null
+  c "built noxis-hw-asteroids_${VERSION}_all.deb"
 }
 
 # ------------------------------------------------------------ downloads (signature-checked)
@@ -234,6 +239,8 @@ apt-get install -y -q /tmp/noxis/noxis-opsec.deb
 # optional packages (build continues if missing from the archive)
 for p in $PKG_OPTIONAL; do apt-get install -y -q "\$p" || echo "optional missing: \$p"; done
 
+# hardware bring-up for the Nothing Phone (3a): firmware links, modem/WLAN/DSP start, Bluetooth
+apt-get install -y -q /tmp/noxis/noxis-hw-asteroids_${VERSION}_all.deb
 # device packages (kernel/adaptation), if given
 if ls /tmp/noxis/device/*.deb >/dev/null 2>&1; then apt-get install -y -q /tmp/noxis/device/*.deb; fi
 # root grows to the full userdata partition on first boot
@@ -286,7 +293,7 @@ EOF
 
 cmd_rootfs() {
   command -v mmdebstrap >/dev/null || die "mmdebstrap missing – ./build-noxis-linux.sh check"
-  [ -f "$DL/noxis-opsec_${VERSION}_all.deb" ] && [ -f "$DL/noxis-shell_${VERSION}_all.deb" ] || cmd_opsec
+  [ -f "$DL/noxis-opsec_${VERSION}_all.deb" ] && [ -f "$DL/noxis-shell_${VERSION}_all.deb" ] && [ -f "$DL/noxis-hw-asteroids_${VERSION}_all.deb" ] || cmd_opsec
   [ -f "$DL/tor-browser.tar.xz" ] && [ -f "$DL/noxis-arkenfox.js" ] && [ -f "$DL/mullvad-keyring.asc" ] || cmd_fetch
   write_customize
   local devdir="$WORK/device"; mkdir -p "$devdir"
@@ -300,6 +307,7 @@ cmd_rootfs() {
     --customize-hook="chroot \"\$1\" mv /tmp/noxis/noxis-opsec_${VERSION}_all.deb /tmp/noxis/noxis-opsec.deb" \
     --customize-hook="copy-in $DL/noxis-shell_${VERSION}_all.deb /tmp/noxis/" \
     --customize-hook="chroot \"\$1\" mv /tmp/noxis/noxis-shell_${VERSION}_all.deb /tmp/noxis/noxis-shell.deb" \
+    --customize-hook="copy-in $DL/noxis-hw-asteroids_${VERSION}_all.deb /tmp/noxis/" \
     --customize-hook="copy-in $DL/mullvad-keyring.asc $DL/noxis-arkenfox.js $(readlink -f "$DL/tor-browser.tar.xz") /tmp/noxis/" \
     --customize-hook="chroot \"\$1\" sh -c 'cd /tmp/noxis && ln -sf tor-browser-linux-aarch64-*.tar.xz tor-browser.tar.xz'" \
     --customize-hook="sync-in $devdir /tmp/noxis/device" \

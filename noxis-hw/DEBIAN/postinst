@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+[ "$1" = configure ] || exit 0
+if [ -d /etc/systemd/system ]; then
+  systemctl enable noxis-firmware-links.service noxis-radios.service noxis-bluetooth.service >/dev/null 2>&1 || true
+  for s in rmtfs pd-mapper tqftpserv ModemManager; do systemctl enable "$s.service" >/dev/null 2>&1 || true; done
+fi
+exit 0
