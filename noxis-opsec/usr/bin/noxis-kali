@@ -1,0 +1,26 @@
+#!/bin/sh
+# Noxis Linux – Kali Linux in a container (distrobox + podman, root mode because
+# Noxis disables user namespaces). Shares the host network, so the Noxis firewall
+# and VPN kill switch still apply.
+#   noxis-kali            enter Kali (created on first run, needs internet)
+#   noxis-kali full       install the full Kali headless tool set (kali-linux-headless, ~3 GB)
+#   noxis-kali remove     delete the Kali container
+set -eu
+NAME=kali
+IMAGE=docker.io/kalilinux/kali-rolling:latest
+command -v distrobox >/dev/null || { echo "distrobox missing: sudo apt install distrobox podman"; exit 1; }
+
+exists() { sudo podman container exists "$NAME" 2>/dev/null; }
+
+create() {
+  echo "[noxis] creating Kali container (first run, downloads ~150 MB) ..."
+  distrobox create --root --yes --name "$NAME" --image "$IMAGE" \
+    --additional-packages "kali-linux-core nmap sqlmap hydra john metasploit-framework"
+}
+
+case "${1:-enter}" in
+  enter) exists || create; exec distrobox enter --root "$NAME" ;;
+  full)  exists || create; exec distrobox enter --root "$NAME" -- sudo apt-get install -y kali-linux-headless ;;
+  remove) distrobox rm --root --force "$NAME" ;;
+  *) sed -n '2,8p' "$0" ;;
+esac

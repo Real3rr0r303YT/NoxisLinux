@@ -16,10 +16,19 @@
   <img src="https://img.shields.io/badge/languages-de%20%C2%B7%20tr%20%C2%B7%20en%20%C2%B7%20fr%20%C2%B7%20bg%20%C2%B7%20ru%20%C2%B7%20uk-7C8CFF.svg" alt="7 languages">
 </p>
 
+<p align="center"><b>Made by <a href="https://www.tiktok.com/@3rr0r303yt">3rr0r303YT on TikTok</a></b></p>
+
 > Sister project: **[Noxis OS](https://github.com/Real3rr0r303YT/NoxisOS)** – the same OPSEC idea as hardened Android (LineageOS + KernelSU), with every piece of hardware working.
 
 > ⚠️ **Alpha.** The rootfs, OPSEC layer, display manager and kernel build are tested; the first boot on the 3a is not.
 > Test with `fastboot boot` first – do not flash.
+
+## What's new – v1.1
+
+- 🐉 **Kali Linux tools built in** – nmap, aircrack-ng, wifite, hcxdumptool, bettercap, Wireshark, hydra, john, hashcat, sqlmap, gobuster, ffuf and more from Debian
+- 🐉 **Full Kali on demand** – `noxis-kali` starts a real Kali Linux container (Metasploit, `kali-linux-headless`), sharing the Noxis firewall and VPN
+- 🤖 **Waydroid** – Android apps inside Linux (`sudo waydroid init` once)
+- `NOXIS_PENTEST=0` builds without the pentest tools
 
 <p align="center"><img src="docs/img/flow.png" alt="First boot: language → time zone → login" width="820"></p>
 <p align="center"><sub>First boot: language → time zone → login (renderings of the GTK4 greeter)</sub></p>
@@ -37,6 +46,8 @@
 - **Keyboard** – no word prediction, learning data in RAM only
 - **Browsers** – Tor Browser (aarch64, GPG-verified), Firefox with arkenfox
 - **Kernel** – from the official Nothing sources, with Yama and Landlock, without user namespaces/kexec
+- **Kali Linux tools** – the common Kali tools from Debian, plus `noxis-kali` for a full Kali container (see [Pentest tools](#pentest-tools))
+- **Waydroid** – run Android apps in a container
 - **Builds** – `git --depth=1`, signature checks, SHA-256, automatic cleanup
 
 ## Quick start
@@ -112,9 +123,34 @@ Mainline Linux on the 3a currently supports only framebuffer, flash LED and debu
 | Mobile Firefox | `mobile-config-firefox` | Debian (optional) | apt |
 | Anonymity | Tor Browser Linux aarch64 → `/opt/tor-browser` | dist.torproject.org | GPG `EF6E 286D … 9329 8290` |
 | Isolation | `waydroid` | Debian (optional) | apt |
+| Pentest | `nmap` `masscan` `aircrack-ng` `reaver` `hcxdumptool` `hcxtools` `wifite` `macchanger` `wireshark` `tshark` `tcpdump` `bettercap` `ettercap` `dsniff` `hydra` `john` `hashcat` `sqlmap` `gobuster` `ffuf` `sslscan` `binwalk` `radare2` `proxychains4` `socat` | Debian (`NOXIS_PENTEST=1`, default) | apt |
+| Kali container | `podman` + `distrobox` → `kalilinux/kali-rolling` via `noxis-kali` | Debian + Docker Hub (official Kali image) | apt / registry |
 | Telephony | `gnome-calls`, `chatty` | Debian | apt |
 | Locales | de_DE, tr_TR, en_US, fr_FR, bg_BG, ru_RU, uk_UA (UTF-8) | Debian `locales` | – |
 | Removed | `openssh-server`, autologin, core dumps | – | – |
+
+## Pentest tools
+
+Built in by default (turn off with `NOXIS_PENTEST=0 sudo -E ./build-noxis-linux.sh container`):
+
+```bash
+nmap -sV 192.168.1.0/24
+sudo wifite                      # needs a USB Wi-Fi adapter with monitor mode (USB-C OTG)
+sudo bettercap
+wireshark                        # your user is in the wireshark group
+```
+
+Full Kali Linux in a container (first run downloads it, needs internet):
+
+```bash
+noxis-kali          # enter Kali (also in the app list as "Kali Linux")
+noxis-kali full     # install kali-linux-headless (~3 GB)
+noxis-kali remove   # delete the container
+```
+
+The container runs in root mode (Noxis kernels have no user namespaces) and uses the host network, so the firewall and VPN kill switch still apply.
+The phone's built-in Wi-Fi (qca6750) has no monitor mode – use a USB Wi-Fi adapter for Wi-Fi attacks.
+Only test networks and devices you own or have written permission to test.
 
 ## 3. systemd units (`noxis-opsec`)
 

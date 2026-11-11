@@ -16,7 +16,7 @@
 #  ./build-noxis-linux.sh kernel      Nothing kernel + boot.img in a container → <output>/device/*.deb
 #                                     ("container" then picks up the device packages automatically)
 #
-#  Variables: NOXIS_WORK NOXIS_OUT NOXIS_USER NOXIS_PIN NOXIS_LANG NOXIS_TZ NOXIS_DEVICE_DEBS BOOT_IMG
+#  Variables: NOXIS_WORK NOXIS_OUT NOXIS_USER NOXIS_PIN NOXIS_LANG NOXIS_TZ NOXIS_DEVICE_DEBS BOOT_IMG NOXIS_PENTEST
 #  NOXIS_LANG: de tr en fr bg ru uk, or "ask" = choose on the phone at first boot
 # ============================================================
 set -euo pipefail
@@ -63,7 +63,10 @@ PKG_BASE="systemd-sysv,systemd-resolved,systemd-timesyncd,dbus-user-session,sudo
 PKG_NET="network-manager,modemmanager,wpasupplicant,bluez,nftables,wireguard-tools,usbguard"
 PKG_UI="phosh-core,cage,gir1.2-gtk-4.0,librsvg2-common,wlr-randr,fonts-inter,squeekboard,pipewire,pipewire-pulse,wireplumber,fonts-noto-core,python3,python3-gi"
 PKG_APPS="firefox-esr,gnome-calls,chatty"
-PKG_OPTIONAL="mobile-config-firefox waydroid phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs pd-mapper tqftpserv qrtr-tools bluez-tools"
+# pentest tools from Debian (Kali-style); NOXIS_PENTEST=0 leaves them out
+PKG_PENTEST="nmap masscan aircrack-ng reaver hcxdumptool hcxtools wifite macchanger tshark wireshark tcpdump bettercap hydra john hashcat sqlmap gobuster ffuf netcat-openbsd socat proxychains4 dnsutils whois binwalk radare2 sslscan dsniff ettercap-text-only podman distrobox"
+PENTEST="${NOXIS_PENTEST:-1}"
+PKG_OPTIONAL="mobile-config-firefox waydroid kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs pd-mapper tqftpserv qrtr-tools bluez-tools"
 
 # ------------------------------------------------------------ language + time zone
 LANG_CODES=(de tr en fr bg ru uk)
@@ -239,6 +242,12 @@ apt-get install -y -q /tmp/noxis/noxis-opsec.deb
 # optional packages (build continues if missing from the archive)
 for p in $PKG_OPTIONAL; do apt-get install -y -q "\$p" || echo "optional missing: \$p"; done
 
+# Kali-style pentest tools (Debian packages) + Kali container helper (noxis-kali)
+if [ "$PENTEST" = 1 ]; then
+  echo "wireshark-common wireshark-common/install-setuid boolean true" | debconf-set-selections
+  for p in $PKG_PENTEST; do apt-get install -y -q --no-install-recommends "\$p" || echo "pentest missing: \$p"; done
+fi
+
 # hardware bring-up for the Nothing Phone (3a): firmware links, modem/WLAN/DSP start, Bluetooth
 apt-get install -y -q /tmp/noxis/noxis-hw-asteroids_${VERSION}_all.deb
 # device packages (kernel/adaptation), if given
@@ -270,6 +279,8 @@ done
 id $NUSER >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,audio,video,render,input,netdev,plugdev,bluetooth,dialout $NUSER 2>/dev/null \
   || useradd -m -s /bin/bash -G sudo,audio,video,input $NUSER
 echo "$NUSER:$NPIN" | chpasswd
+# capture without root in Wireshark (only if the pentest tools are installed)
+getent group wireshark >/dev/null && usermod -aG wireshark $NUSER || true
 # login: own display manager noxis-dm + greeter → PIN after every boot, no autologin
 apt-get install -y -q /tmp/noxis/noxis-shell.deb
 sed -i "s/^user *=.*/user = $NUSER/" /etc/noxis/greeter.conf
@@ -409,7 +420,7 @@ cmd_container() {
   docker run --rm --privileged \
     -v "$HERE:/noxis:ro" -v "$out:/out" -v "noxis-build:/work" "${devargs[@]}" \
     -e NOXIS_WORK=/work/build -e NOXIS_OUT=/out/noxis-linux -e NOXIS_USER -e NOXIS_PIN \
-    -e NOXIS_LANG="$NLANG" -e NOXIS_TZ="$NTZ" \
+    -e NOXIS_LANG="$NLANG" -e NOXIS_TZ="$NTZ" -e NOXIS_PENTEST \
     debian:trixie bash -c '
       set -e
       apt-get update -q && apt-get install -y -q mmdebstrap qemu-user-static e2fsprogs gnupg curl git \

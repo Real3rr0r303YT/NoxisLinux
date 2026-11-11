@@ -96,6 +96,8 @@ ok "rootfs: arm64, trixie, Phosh, Squeekboard, firewall packages" "grep -q -- '-
 ok "rootfs: customize.sh runs in the chroot" "tar -tf $NOXIS_WORK/rootfs.tar | grep -q 'etc/.customize-hook'"
 ok "rootfs: customize.sh syntax ok" "bash -n $NOXIS_WORK/customize.sh"
 ok "rootfs: Mullvad repo + lockdown package + no SSH in the chroot script" "grep -q 'repository.mullvad.net/deb/stable' $NOXIS_WORK/customize.sh && grep -q 'noxis-opsec.deb' $NOXIS_WORK/customize.sh && grep -q 'mask --quiet ssh.service' $NOXIS_WORK/customize.sh"
+ok "rootfs: Kali-style pentest tools in the chroot script" "grep -q 'PENTEST\\|pentest missing' $NOXIS_WORK/customize.sh && grep -q 'aircrack-ng' $NOXIS_WORK/customize.sh && grep -q 'distrobox' $NOXIS_WORK/customize.sh"
+ok "opsec: noxis-kali helper + launcher in the package" "dpkg-deb -c $NOXIS_WORK/downloads/noxis-opsec_1.0.0_all.deb | grep -q 'usr/bin/noxis-kali' && dpkg-deb -c $NOXIS_WORK/downloads/noxis-opsec_1.0.0_all.deb | grep -q 'noxis-kali.desktop'"
 
 $B image > "$W/i1" 2>&1;                      ok "image: rootfs.img is real ext4" "e2fsck -fn $NOXIS_OUT/rootfs.img"
 ok "image: firewall rules readable in the image" "debugfs -R 'cat /etc/noxis/firewall.nft' $NOXIS_OUT/rootfs.img 2>/dev/null | grep -q 'policy drop'"

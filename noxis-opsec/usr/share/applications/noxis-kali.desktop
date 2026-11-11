@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kali Linux
+Comment=Kali tools in a container (noxis-kali)
+Exec=kgx -- noxis-kali
+Icon=utilities-terminal
+Terminal=false
+Categories=System;Security;
