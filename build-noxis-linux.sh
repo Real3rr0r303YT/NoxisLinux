@@ -192,10 +192,21 @@ fetch_mullvad_key() {
 }
 
 fetch_tor() {
-  local ver base f
-  ver=$(curl -fsSL https://dist.torproject.org/torbrowser/ | grep -oE 'href="[0-9]+\.[0-9]+(\.[0-9]+)?/"' \
-        | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | sort -V | tail -1)
-  [ -n "$ver" ] || die "Cannot determine the Tor Browser version"
+  local ver base f vers found=
+  # Newest first. Some releases are Android-only hotfixes with no desktop
+  # build at all, so walk back until a version really carries the aarch64
+  # tarball instead of trusting the highest version number.
+  vers=$(curl -fsSL https://dist.torproject.org/torbrowser/ | grep -oE 'href="[0-9]+\.[0-9]+(\.[0-9]+)?/"' \
+        | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | sort -V -r)
+  [ -n "$vers" ] || die "Cannot determine the Tor Browser version"
+  for ver in $vers; do
+    base="https://dist.torproject.org/torbrowser/$ver"
+    f="tor-browser-linux-aarch64-$ver.tar.xz"
+    if curl -fsIL -o /dev/null "$base/$f" 2>/dev/null; then found=$ver; break; fi
+    c "Tor Browser $ver has no Linux aarch64 build – trying the one before it"
+  done
+  [ -n "$found" ] || die "No Tor Browser release with a Linux aarch64 build found"
+  ver=$found
   base="https://dist.torproject.org/torbrowser/$ver"
   f="tor-browser-linux-aarch64-$ver.tar.xz"
   c "Tor Browser $ver (Linux aarch64)"
