@@ -217,7 +217,12 @@ resolve_list() {  # $@ = Listen-Dateien → stdout: Modulnamen (ohne .ko), Reihe
 # ------------------------------------------------------------ initramfs
 fetch_static_tools() {  # busybox-static + e2fsck-static (arm64, apt-signiert)
   local t="$KWORK/static"
-  [ -x "$t/busybox" ] && [ -x "$t/e2fsck" ] && return 0
+  is_elf() { [ -f "$1" ] && [ "$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]; }
+  # Cache nur akzeptieren, wenn wirklich Binaries drinliegen: ein frueherer
+  # Build hat hier eine 16-Byte-Textdatei als "busybox" abgelegt, und ein
+  # reiner -x-Test haette sie weiterbenutzt.
+  is_elf "$t/busybox" && is_elf "$t/e2fsck" && return 0
+  rm -rf "$t/x" "$t/busybox" "$t/e2fsck"
   mkdir -p "$t/x"
   if [ "$(dpkg --print-architecture)" != arm64 ]; then
     dpkg --print-foreign-architectures | grep -qx arm64 || { dpkg --add-architecture arm64; apt-get update -q >/dev/null; }
@@ -230,7 +235,7 @@ fetch_static_tools() {  # busybox-static + e2fsck-static (arm64, apt-signiert)
   pick_bin() {  # $1 = Dateiname im Paket, $2 = Ziel
     local f
     for f in $(find "$t/x" -type f \( -path '*/bin/*' -o -path '*/sbin/*' \) -name "$1"); do
-      [ "$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] || continue
+      is_elf "$f" || continue
       cp "$f" "$2"; return 0
     done
     return 1
