@@ -24,5 +24,17 @@ if [ -d /etc/systemd/system ]; then
   done
   ln -sf /usr/lib/systemd/system/noxis-dm.service /etc/systemd/system/display-manager.service
   systemctl enable noxis-dm.service >/dev/null 2>&1 || true
+  # seatd: phoc fragt /run/seatd.sock als erstes ab. Laeuft dort nichts, bleibt
+  # nur logind, und das gibt die Sitzung nicht heraus, solange sie einem
+  # anderen Benutzer gehoert ("Only owner of session may take control") -- die
+  # Anmeldung springt dann sofort zum Greeter zurueck. Debian liefert den
+  # Dienst mit, aktiviert ihn aber nicht.
+  systemctl enable seatd.service >/dev/null 2>&1 || true
+fi
+# Mitglieder von _seatd duerfen den Socket benutzen.
+if getent group _seatd >/dev/null; then
+  for u in noxis noxis-greeter; do
+    getent passwd "$u" >/dev/null && adduser "$u" _seatd >/dev/null 2>&1 || true
+  done
 fi
 exit 0
