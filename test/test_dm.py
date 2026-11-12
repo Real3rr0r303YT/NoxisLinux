@@ -157,6 +157,21 @@ print("== Config")
 c = dm.load_conf(os.path.join(ROOT, "noxis-shell/etc/noxis/dm.conf"))
 check("dm.conf: vt 1, greeter user, sessions", c["vt"] == 1 and c["greeter_user"] == "noxis-greeter" and c["sessions"] == ["phosh-session"], c)
 check("dm.conf: greeter in cage", "cage" in c["greeter_cmd"] and "noxis-greeter" in c["greeter_cmd"])
+check("dm.conf: renderer pixman", c["renderer"] == "pixman", c)
+
+print("== Renderer + XDG_RUNTIME_DIR")
+GPW = pwd.getpwnam("nobody")
+e = dm.base_env(GPW, c, "greeter")
+check("pixman renderer in the environment",
+      e.get("WLR_RENDERER") == "pixman" and e.get("WLR_RENDERER_ALLOW_SOFTWARE") == "1"
+      and e.get("GSK_RENDERER") == "cairo", e)
+chw = dict(c); chw["renderer"] = "gles2"
+e2 = dm.base_env(GPW, chw, "greeter")
+check("gles2 without the software switches",
+      e2.get("WLR_RENDERER") == "gles2" and "WLR_RENDERER_ALLOW_SOFTWARE" not in e2, e2)
+chn = dict(c); chn["renderer"] = ""
+e3 = dm.base_env(GPW, chn, "greeter")
+check("renderer empty leaves WLR_RENDERER unset", "WLR_RENDERER" not in e3, e3)
 
 shutil.rmtree(T, ignore_errors=True)
 print(f"\n{passed} passed, {failed} failed")

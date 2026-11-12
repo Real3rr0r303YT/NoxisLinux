@@ -4,6 +4,8 @@
 #   ./noxis-diag.sh install   Haken ins Rootfs legen (Geraet in der Recovery)
 #   ./noxis-diag.sh fetch     Diagnose nach einem Noxis-Boot abholen
 #   ./noxis-diag.sh remove    Haken wieder entfernen
+#   ./noxis-diag.sh shell     noxis-shell und noxis-opsec aus dem Repo ins
+#                             installierte Rootfs kopieren (ohne Neubau)
 #
 # Warum nicht das Journal: noxis-opsec setzt Storage=volatile, das Journal
 # liegt also nur im RAM und ist nach dem Ausschalten weg. Und der
@@ -115,6 +117,38 @@ fetch)
   echo; c "=== DRM-Zustand ==="; cat "$OUTDIR/drm.log" 2>/dev/null | head -60
   echo; c "=== Display im dmesg ==="
   grep -inE "msm_drm|sde_|dsi|panel|drm" "$OUTDIR/dmesg.log" 2>/dev/null | tail -25 || echo "  (nichts)"
+  ;;
+
+shell)
+  # Dateien aus dem Repo ins installierte System spielen. Ein Rootfs-Neubau
+  # dauert eine halbe Stunde; fuer eine geaenderte Python-Datei oder eine
+  # Konfigurationsdatei ist das unverhaeltnismaessig.
+  need_recovery; mount_root
+  n=0
+  for rel in \
+      noxis-shell/usr/lib/noxis/dm/noxis-dm \
+      noxis-shell/usr/lib/noxis/dm/pam.py \
+      noxis-shell/usr/lib/noxis/dm/setup.py \
+      noxis-shell/usr/lib/noxis/greeter/core.py \
+      noxis-shell/usr/lib/noxis/greeter/greetd_ipc.py \
+      noxis-shell/usr/lib/noxis/greeter/i18n.py \
+      noxis-shell/usr/lib/noxis/greeter/noxis-greeter \
+      noxis-shell/usr/lib/noxis/greeter/style.css \
+      noxis-shell/usr/lib/noxis/noxis-dock \
+      noxis-shell/etc/noxis/dm.conf \
+      noxis-shell/etc/noxis/greeter.conf \
+      noxis-shell/etc/noxis/dock.conf
+  do
+    src="$REPO/$rel"
+    [ -f "$src" ] || continue
+    dst="$M/${rel#noxis-shell/}"
+    adb shell "[ -e $dst ] && echo yes" 2>/dev/null | grep -q yes || { c "nicht im System, uebersprungen: ${rel#noxis-shell/}"; continue; }
+    adb push "$src" "$dst" >/dev/null 2>&1 && { n=$((n + 1)); } || die "push $rel fehlgeschlagen"
+    case "$rel" in *.py|*.css|*.conf) ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
+  done
+  adb shell "sync" >/dev/null 2>&1
+  ok "$n Dateien aktualisiert"
+  umount_root
   ;;
 
 remove)

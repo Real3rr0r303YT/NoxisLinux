@@ -45,6 +45,7 @@ def load_conf(path=None):
         "sessions": [x.strip() for x in s.get("sessions", "phosh-session").split(",") if x.strip()],
         "run_dir": s.get("run_dir", "/run/noxis-dm"),
         "pam_confdir": s.get("pam_confdir", "") or None,
+        "renderer": s.get("renderer", "pixman"),
     }
 
 
@@ -215,6 +216,16 @@ def base_env(pw, conf, cls):
     }
     if conf["vt"]:
         env["XDG_VTNR"] = str(conf["vt"])
+    # Mesa hat keinen GL-Treiber fuer Qualcomms KGSL; freedreno spricht nur mit
+    # dem Mainline-msm-Treiber. EGL scheitert deshalb mit "DRI2: failed to load
+    # driver", und wlroots bricht ohne Renderer ab. pixman rendert in Software,
+    # das genuegt fuer Greeter und Oberflaeche. renderer = gles2 in dm.conf
+    # schaltet wieder auf Hardware um, sobald es einen Treiber gibt.
+    if conf.get("renderer"):
+        env["WLR_RENDERER"] = conf["renderer"]
+        if conf["renderer"] == "pixman":
+            env["WLR_RENDERER_ALLOW_SOFTWARE"] = "1"
+            env["GSK_RENDERER"] = "cairo"
     return env
 
 
@@ -257,6 +268,22 @@ def open_pam_session(p, pw, conf, cls, extra_env=None, establish=True):
     env = base_env(pw, conf, cls)
     env.update(p.envlist())
     env.update(extra_env or {})
+    # pam_systemd liefert XDG_RUNTIME_DIR normalerweise mit. Nach einem
+    # Fehlversuch des Greeters ist die logind-Sitzung noch im Abbau und die
+    # Variable fehlt beim naechsten Versuch -- cage bricht dann sofort mit
+    # "XDG_RUNTIME_DIR is not set" ab, und zwar immer wieder. Notfalls selbst
+    # setzen und das Verzeichnis anlegen.
+    rd = env.get("XDG_RUNTIME_DIR")
+    if not rd:
+        rd = f"/run/user/{pw.pw_uid}"
+        env["XDG_RUNTIME_DIR"] = rd
+        log(f"XDG_RUNTIME_DIR fehlte, benutze {rd}")
+    try:
+        os.makedirs(rd, mode=0o700, exist_ok=True)
+        os.chown(rd, pw.pw_uid, pw.pw_gid)
+        os.chmod(rd, 0o700)
+    except OSError as e:
+        log(f"XDG_RUNTIME_DIR {rd}: {e}")
     return env
 
 
