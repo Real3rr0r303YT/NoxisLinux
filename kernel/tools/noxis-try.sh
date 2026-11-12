@@ -25,6 +25,14 @@ ask()  { printf '\033[1;35m[ DU  ]\033[0m %s\n' "$*"; }
 command -v fastboot >/dev/null || die "fastboot fehlt"
 command -v adb      >/dev/null || die "adb fehlt"
 
+# Interface-Namen ohne die virtuellen: Docker legt beim Bauen veth-Paare an,
+# und die wurden sonst als "neues USB-Interface" gezaehlt. Das @peer-Suffix aus
+# "ip -o link" faellt ebenfalls weg, sonst passt der Name nicht auf "ip addr".
+ifsnap() {
+  ip -o link | awk -F': ' '{print $2}' | sed 's/@.*//' \
+    | grep -vE '^(lo|veth|docker|br-|virbr|vnet|tap|tun|wg|bond|dummy)' | sort
+}
+
 wait_fastboot() {  # $1 = Aufforderungstext
   if fastboot devices 2>/dev/null | grep -q fastboot; then return 0; fi
   ask "$1"
@@ -86,7 +94,7 @@ if adb devices 2>/dev/null | grep -qE 'recovery|device$'; then
 fi
 wait_fastboot "Handy in den Bootloader bringen: Power lang drücken bis es ausgeht, dann Power + Leiser halten."
 
-before=$(ip -o link | awk -F': ' '{print $2}' | sort)
+before=$(ifsnap)
 
 c "init_boot flashen"
 fastboot flash init_boot init_boot.noxis.img >/dev/null 2>&1 || die "flash init_boot fehlgeschlagen"
@@ -97,7 +105,7 @@ ok "gestartet – suche bis zu 90 Sekunden nach einem USB-Interface"
 iface=""
 for i in $(seq 1 90); do
   sleep 1
-  now=$(ip -o link | awk -F': ' '{print $2}' | sort)
+  now=$(ifsnap)
   new=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$now") | head -n1)
   if [ -n "$new" ]; then iface="$new"; break; fi
   [ $((i % 15)) -eq 0 ] && c "… noch nichts (${i}s)"
