@@ -28,14 +28,15 @@ PKGVER="1.0.0"
 
 # Qualcomm module makefiles expect the Android layout kernel_platform/msm-kernel + ../../vendor
 SRC="$KWORK/kernel_platform/msm-kernel"; O="$KWORK/obj"; STAGE="$KWORK/stage"; IRD="$KWORK/initramfs"; DEBS="$KWORK/debs"
-MAKEARGS=(ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$O"
-          KCFLAGS="-D__ANDROID_COMMON_KERNEL__ -DNT_PROJECT=Asteroids -Wno-error")
+BASE_KCFLAGS="-D__ANDROID_COMMON_KERNEL__ -DNT_PROJECT=Asteroids -Wno-error"
+MAKEARGS=(ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$O" KCFLAGS="$BASE_KCFLAGS")
 
 c()    { printf '\033[38;5;111m[noxis-kernel]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
 # external Qualcomm/Nothing modules: folder | ROOT variable | extra make arguments
+#                                    | extra KCFLAGS (may contain spaces)
 # (order = dependencies; @P = module path, @V = vendor/qcom/opensource)
 WLAN_PLATFORM_OPTS="CONFIG_CNSS_OUT_OF_TREE=y CONFIG_CNSS2=m CONFIG_ICNSS2=m CONFIG_CNSS2_QMI=y CONFIG_ICNSS2_QMI=y \
 CONFIG_CNSS_QMI_SVC=m CONFIG_CNSS_PLAT_IPC_QMI_SVC=m CONFIG_CNSS_GENL=m CONFIG_WCNSS_MEM_PRE_ALLOC=m CONFIG_CNSS_UTILS=m"
@@ -55,7 +56,7 @@ EXT_MODULES=(
   "touch-drivers|TOUCH_ROOT|"
   "wlan/platform|WLAN_PLATFORM_ROOT|$WLAN_PLATFORM_OPTS"
   "wlan/qcacld-3.0|WLAN_ROOT|$WLAN_CLD_OPTS"
-  "datarmnet/core|RMNET_CORE_ROOT|CONFIG_RMNET_LA_PLATFORM=y"
+  "datarmnet/core|RMNET_CORE_ROOT||-DCONFIG_RMNET_LA_PLATFORM -I@V/dataipa/drivers/platform/msm/include -I@V/datarmnet-ext/mem"
   "datarmnet-ext/mem|RMNET_MEM_ROOT|"
   "dataipa|DATAIPA_ROOT|"
   "bt-kernel|BT_ROOT|CONFIG_MSM_BT_POWER=m CONFIG_BTFM_SLIM=m"
@@ -153,16 +154,17 @@ root_for() {
 }
 
 build_external() {
-  local syms="" entry dir var extra path ok=() fail=() vend="$SRC/vendor/qcom/opensource"
+  local syms="" entry dir var extra kcf path ok=() fail=() vend="$SRC/vendor/qcom/opensource"
   for entry in "${EXT_MODULES[@]}"; do
-    IFS='|' read -r dir var extra <<<"$entry"
+    IFS='|' read -r dir var extra kcf <<<"$entry"
     path="$vend/$dir"
     [ -d "$path" ] || { fail+=("$dir (missing)"); continue; }
     extra="${extra//@P/$path}"; extra="${extra//@V/$vend}"
+    kcf="${kcf//@P/$path}"; kcf="${kcf//@V/$vend}"
     c "External module: $dir"
     # shellcheck disable=SC2086  # extra = several make variables
     if make -C "$SRC" "${MAKEARGS[@]}" -j"$JOBS" M="$path" KERNEL_SRC="$SRC" TOP="$KWORK" \
-         "$var=$(root_for "$dir" "$vend" "$path")" $extra \
+         "$var=$(root_for "$dir" "$vend" "$path")" KCFLAGS="$BASE_KCFLAGS${kcf:+ $kcf}" $extra \
          KBUILD_EXTRA_SYMBOLS="$syms" modules >>"$KWORK/build-ext.log" 2>&1; then
       ok+=("$dir"); [ -f "$path/Module.symvers" ] && syms="$syms $path/Module.symvers"
     else
@@ -184,9 +186,11 @@ cmd_install() {
     local extra; extra=$(printf '%s\n' "${EXT_MODULES[@]}" | awk -F'|' -v d="$dir" '$1 == d {print $3}')
     extra="${extra//@P/$path}"; extra="${extra//@V/$SRC/vendor/qcom/opensource}"
     local var; var=$(printf '%s\n' "${EXT_MODULES[@]}" | awk -F'|' -v d="$dir" '$1 == d {print $2}')
+    local kcf; kcf=$(printf '%s\n' "${EXT_MODULES[@]}" | awk -F'|' -v d="$dir" '$1 == d {print $4}')
+    kcf="${kcf//@P/$path}"; kcf="${kcf//@V/$SRC/vendor/qcom/opensource}"
     # shellcheck disable=SC2086
     make -s -C "$SRC" "${MAKEARGS[@]}" M="$path" KERNEL_SRC="$SRC" TOP="$KWORK" \
-      "$var=$(root_for "$dir" "$SRC/vendor/qcom/opensource" "$path")" $extra \
+      "$var=$(root_for "$dir" "$SRC/vendor/qcom/opensource" "$path")" KCFLAGS="$BASE_KCFLAGS${kcf:+ $kcf}" $extra \
       INSTALL_MOD_PATH="$STAGE" INSTALL_MOD_STRIP=1 INSTALL_MOD_DIR=extra modules_install || warn "Installing $dir failed"
   done < "$KWORK/ext-ok"
   KREL=$(cat "$O/include/config/kernel.release")
