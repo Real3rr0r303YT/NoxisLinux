@@ -22,6 +22,7 @@ c()   { printf '\033[1;36m[diag]\033[0m %s\n' "$*"; }
 ok()  { printf '\033[1;32m[ ok ]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[FAIL]\033[0m %s\n' "$*"; exit 1; }
 
+REPO="${NOXIS_REPO:-$HOME/NoxisLinux}"
 M=/mnt/noxisroot
 OUTDIR="$HOME/noxis-backup/diag-$(date +%H%M%S)"
 
