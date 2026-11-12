@@ -53,7 +53,11 @@ install)
   tmp=$(mktemp -d)
   cat > "$tmp/noxis-bootlog" <<'EOS'
 #!/bin/sh
-# Noxis: Bootdiagnose auf die Partition schreiben (ueberlebt das Ausschalten)
+# Noxis: Bootdiagnose auf die Partition schreiben (ueberlebt das Ausschalten).
+# Wiederholt, weil ein Anmeldeversuch Minuten nach dem Start passiert und ein
+# einmaliger Schnappschuss ihn nicht enthaelt. Jede Runde ueberschreibt die
+# vorherige, der letzte Stand vor dem Ausschalten bleibt also stehen.
+snapshot() {
 d=/var/log/noxis
 mkdir -p "$d"
 dmesg                                   > "$d/dmesg.log"    2>&1
@@ -70,6 +74,13 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
 journalctl -b --no-pager                > "$d/journal.log"  2>&1
 date                                    > "$d/when.log"     2>&1
 sync
+}
+i=0
+while [ "$i" -lt 45 ]; do
+  snapshot
+  sleep 20
+  i=$((i + 1))
+done
 EOS
   cat > "$tmp/noxis-bootlog.service" <<'EOS'
 [Unit]
@@ -78,10 +89,10 @@ After=multi-user.target
 Wants=multi-user.target
 
 [Service]
-Type=oneshot
-ExecStartPre=/bin/sleep 30
+Type=simple
+ExecStartPre=/bin/sleep 20
 ExecStart=/usr/local/sbin/noxis-bootlog
-RemainAfterExit=yes
+Restart=no
 
 [Install]
 WantedBy=multi-user.target
@@ -93,10 +104,10 @@ EOS
   adb shell "[ -L $M/etc/systemd/system/multi-user.target.wants/noxis-bootlog.service ] && echo yes" 2>/dev/null | grep -q yes \
     || die "Dienst nicht verknuepft"
   rm -rf "$tmp"
-  ok "Dienst eingerichtet – er laeuft 30 Sekunden nach multi-user.target"
+  ok "Dienst eingerichtet – er schreibt ab Sekunde 20 alle 20 Sekunden neu, 15 Minuten lang"
   umount_root
   echo
-  c "Jetzt: kernel/tools/noxis-try.sh starten, mindestens 90 Sekunden laufen lassen,"
+  c "Jetzt: kernel/tools/noxis-try.sh starten, anmelden, dann mindestens 60 Sekunden warten,"
   c "dann --restore, und danach: noxis-diag.sh fetch"
   ;;
 
