@@ -57,12 +57,34 @@ load_modules() {
   KREL=$(uname -r)
   list=/lib/modules/$KREL/modules.load.noxis
   [ -f "$list" ] || { log "no module list $list"; return 0; }
-  ok=0; fail=0
+  # Mehrere Durchlaeufe: ein Modul, dessen Symbol-Lieferant spaeter in der Liste
+  # steht, scheitert im ersten Durchgang und laedt im naechsten. Abbruch, sobald
+  # ein Durchlauf nichts mehr schafft.
+  P=/tmp/noxis-mods; N=/tmp/noxis-mods.next
+  cp "$list" "$P"
+  ok=0; pass=0
+  while :; do
+    pass=$((pass + 1)); progress=0; : > "$N"
+    while read -r m; do
+      case "$m" in ''|'#'*) continue ;; esac
+      if modprobe -q "${m%.ko}" 2>/dev/null; then
+        ok=$((ok + 1)); progress=1
+      else
+        echo "$m" >> "$N"
+      fi
+    done < "$P"
+    mv "$N" "$P"
+    [ -s "$P" ] || break
+    [ "$progress" -eq 1 ] || break
+    [ "$pass" -ge 12 ] && break
+  done
+  fail=0
   while read -r m; do
     case "$m" in ''|'#'*) continue ;; esac
-    if modprobe -q "${m%.ko}" 2>/dev/null; then ok=$((ok + 1)); else fail=$((fail + 1)); log "module missing/broken: $m"; fi
-  done < "$list"
-  log "modules: $ok loaded, $fail failed"
+    fail=$((fail + 1)); log "module failed: $m"
+  done < "$P"
+  rm -f "$P" "$N"
+  log "modules: $ok loaded, $fail failed ($pass passes)"
 }
 
 usb_debug() {

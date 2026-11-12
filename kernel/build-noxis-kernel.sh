@@ -224,8 +224,19 @@ fetch_static_tools() {  # busybox-static + e2fsck-static (arm64, apt-signiert)
   fi
   ( cd "$t" && apt-get download -q busybox-static:arm64 e2fsck-static:arm64 >/dev/null )
   for d in "$t"/*.deb; do dpkg-deb -x "$d" "$t/x"; done
-  cp "$(find "$t/x" -type f -name busybox | head -n1)" "$t/busybox" 2>/dev/null || die "busybox-static (arm64) not downloaded"
-  cp "$(find "$t/x" -type f -name e2fsck.static | head -n1)" "$t/e2fsck" 2>/dev/null || die "e2fsck-static (arm64) not downloaded"
+  # Nur echte Binaries aus bin/ oder sbin/ nehmen: busybox-static enthaelt
+  # zusaetzlich usr/share/initramfs-tools/conf-hooks.d/busybox, eine 16-Byte-
+  # Textdatei. Landet die im Initramfs, scheitert /init mit ENOEXEC.
+  pick_bin() {  # $1 = Dateiname im Paket, $2 = Ziel
+    local f
+    for f in $(find "$t/x" -type f \( -path '*/bin/*' -o -path '*/sbin/*' \) -name "$1"); do
+      [ "$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] || continue
+      cp "$f" "$2"; return 0
+    done
+    return 1
+  }
+  pick_bin busybox       "$t/busybox" || die "busybox-static (arm64): kein ELF-Binary im Paket"
+  pick_bin e2fsck.static "$t/e2fsck"  || die "e2fsck-static (arm64): kein ELF-Binary im Paket"
   chmod 0755 "$t/busybox" "$t/e2fsck"
 }
 
@@ -246,18 +257,33 @@ cmd_initramfs() {
   install -m 0644 "$HERE/initramfs/udhcpd.conf" "$IRD/etc/udhcpd.conf"
 
   # first-stage modules (vendor_boot + recovery: storage, USB, display, touch)
-  local list="$IRD/lib/modules/$KREL/modules.load.noxis" m p missing=0
-  : > "$list"
+  # Module samt Abhaengigkeiten uebernehmen. modprobe --show-depends liest die
+  # modules.dep des Stage-Baums und gibt die Kette in Ladereihenfolge aus; ohne
+  # das fehlen Symbol-Lieferanten wie qti_regmap_debugfs oder thermal_minidump
+  # im Initramfs und qcom-spmi-pmic bzw. dwc3-msm laden spaeter nicht.
+  local list="$IRD/lib/modules/$KREL/modules.load.noxis" m out p missing=0
+  local MODROOT="$STAGE/lib/modules/$KREL" seen="$KWORK/.modseen" block
+  block=" $(sed -n 's/^blocklist[[:space:]]\+//p' "$HERE/modules/modules.blocklist" | tr '\n' ' ') "
+  : > "$list"; : > "$seen"; : > "$KWORK/initramfs-missing"
+  copy_mod() {  # $1 = Pfad aus modprobe --show-depends
+    local src="$1" rel base
+    rel="${src##*/lib/modules/$KREL/}"; base="${rel##*/}"
+    [ -f "$MODROOT/$rel" ] || return 0
+    case "$block" in *" ${base%.ko} "*) return 0 ;; esac
+    grep -qxF "$base" "$seen" && return 0
+    printf '%s\n' "$base" >> "$seen"
+    mkdir -p "$IRD/lib/modules/$KREL/$(dirname "$rel")"
+    cp "$MODROOT/$rel" "$IRD/lib/modules/$KREL/$rel"
+    printf '%s\n' "$base" >> "$list"
+  }
   while read -r m; do
-    p=$(find "$STAGE/lib/modules/$KREL" -name "$m.ko" -print -quit)
-    if [ -n "$p" ]; then
-      mkdir -p "$IRD/lib/modules/$KREL/$(dirname "${p#"$STAGE/lib/modules/$KREL/"}")"
-      cp "$p" "$IRD/lib/modules/$KREL/${p#"$STAGE/lib/modules/$KREL/"}"
-      echo "$m.ko" >> "$list"
+    if out=$(modprobe -d "$STAGE" --set-version "$KREL" --show-depends --ignore-install "$m" 2>/dev/null); then
+      printf '%s\n' "$out" | awk '$1=="insmod"{print $2}' | while read -r p; do copy_mod "$p"; done
     else
-      missing=$((missing + 1)); echo "$m" >> "$KWORK/initramfs-missing"
+      missing=$((missing + 1)); printf '%s\n' "$m" >> "$KWORK/initramfs-missing"
     fi
   done < <(resolve_list "$HERE/modules/modules.load.vendor_boot" "$HERE/modules/modules.load.recovery")
+  rm -f "$seen"
   cp "$STAGE/lib/modules/$KREL"/modules.{order,builtin,builtin.modinfo} "$IRD/lib/modules/$KREL/" 2>/dev/null || true
   depmod -b "$IRD" "$KREL"
   c "Initramfs: $(grep -c . "$list") modules, $missing not built"
