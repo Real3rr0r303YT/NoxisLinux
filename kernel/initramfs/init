@@ -89,8 +89,21 @@ load_modules() {
 
 usb_debug() {
   g=/sys/kernel/config/usb_gadget/noxis
-  udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
-  [ -n "$udc" ] || { log "no USB controller (UDC)"; return 1; }
+  # Auf den UDC warten: dwc3 bindet erst, wenn PMIC, Regulatoren und die
+  # USB-PHYs durchgeprobt sind. Direkt nach dem Laden der Module ist
+  # /sys/class/udc noch leer, auch wenn alles in Ordnung ist.
+  i=0; udc=""
+  while [ "$i" -lt "${NOXIS_UDC_TRIES:-150}" ]; do
+    udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
+    [ -n "$udc" ] && break
+    sleep 0.1; i=$((i + 1))
+  done
+  if [ -z "$udc" ]; then
+    log "no USB controller (UDC) after $((i / 10))s"
+    log "dwc3: $(ls -d /sys/bus/platform/drivers/dwc3/*/ 2>/dev/null | tr '\n' ' ')"
+    return 1
+  fi
+  [ "$i" -gt 0 ] && log "UDC $udc after $((i / 10))s"
   mkdir -p "$g" || return 1
   echo 0x18D1 > "$g/idVendor"; echo 0xD001 > "$g/idProduct"
   mkdir -p "$g/strings/0x409"
