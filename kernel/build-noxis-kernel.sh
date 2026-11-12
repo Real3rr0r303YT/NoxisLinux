@@ -327,6 +327,9 @@ cmd_bootimg() {
     --cmdline "$CMDLINE" \
     --os_version 15.0.0 --os_patch_level "$(date +%Y-%m)" \
     --output "$KOUT/boot.img"
+  # Die lz4-Ramdisk gehoert zur Ausgabe: sie wird fuer init_boot gebraucht,
+  # das dieses Geraet zwingend verlangt.
+  [ -f "$KWORK/initramfs.cpio.lz4" ] && cp "$KWORK/initramfs.cpio.lz4" "$KOUT/initramfs.cpio.lz4"
   local got; got=$(stat -c %s "$KOUT/boot.img")
   [ "$got" -le "$size" ] || die "boot.img $got Bytes > Partition $size Bytes"
   c "boot.img: $((got / 1048576)) MiB von $((size / 1048576)) MiB"

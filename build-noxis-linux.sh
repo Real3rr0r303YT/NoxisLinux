@@ -9,6 +9,8 @@
 #  ./build-noxis-linux.sh rootfs      Debian rootfs (mmdebstrap) + Noxis layer
 #  ./build-noxis-linux.sh image       rootfs.img (ext4) + rootfs-sparse.img (fastboot)
 #  ./build-noxis-linux.sh boot        boot.img (from BOOT_IMG or the device kernel package)
+#  ./build-noxis-linux.sh flash       aufs Handy installieren (vbmeta, userdata, boot, init_boot)
+#  ./build-noxis-linux.sh restore     Stock-Bootkette zurueck (Recovery erreichbar, userdata bleibt)
 #  ./build-noxis-linux.sh verify      SHA-256 + image check
 #  ./build-noxis-linux.sh cleanup     delete the build folder (only after a successful verify)
 #  ./build-noxis-linux.sh all         everything in order (asks for language + time zone)
@@ -397,6 +399,105 @@ cmd_boot() {
 }
 
 # ------------------------------------------------------------ verify
+# ------------------------------------------------------------ flash
+# Auf diesem Geraet gibt es zwei Fallen, die wir teuer gelernt haben:
+#
+#  1. Die Ramdisk MUSS nach init_boot. Der Bootloader ignoriert die Ramdisk im
+#     boot.img, sobald eine init_boot-Partition existiert -- mit rdinit auf eine
+#     Datei in der boot-Ramdisk endet es in "VFS: Unable to mount root fs on
+#     unknown-block(0,0)".
+#
+#  2. Nur das HAUPT-vbmeta darf entschaerft werden. Werden vbmeta_system und
+#     vbmeta_vendor mit --disable-verity --disable-verification geflasht,
+#     startet das Geraet ueberhaupt nicht mehr und faellt sofort in fastboot
+#     zurueck, auch mit Stock-Kernel und Stock-Recovery.
+#
+# Deshalb dieser Befehl: eine Reihenfolge, die nachweislich bootet.
+cmd_flash() {
+  command -v fastboot >/dev/null || die "fastboot fehlt"
+  command -v adb      >/dev/null || die "adb fehlt"
+  local out; out="$(desktop_dir)/noxis-linux"
+  local rootfs="$out/rootfs-sparse.img" boot="$out/boot.img"
+  local rd="$out/initramfs.cpio.lz4" tpl="$out/stock"
+  [ -f "$rootfs" ] || die "$rootfs fehlt – erst: $0 container"
+  [ -f "$boot" ]   || die "$boot fehlt – erst: $0 kernel"
+  [ -f "$rd" ]     || die "$rd fehlt – erst: $0 kernel (neu bauen, liefert die lz4-Ramdisk mit)"
+  command -v python3 >/dev/null || die "python3 fehlt"
+  mkdir -p "$tpl"
+
+  # Rohlinge vom Geraet: init_boot als Vorlage fuer unsere Ramdisk, vbmeta zum
+  # Entschaerfen und zum Zurücksetzen. Einmal abziehen reicht.
+  if [ ! -f "$tpl/init_boot.img" ] || [ ! -f "$tpl/vbmeta.img" ]; then
+    c "Rohlinge vom Geraet holen (Recovery mit adb nötig)"
+    adb wait-for-any >/dev/null 2>&1 || true
+    adb shell 'SL=$(getprop ro.boot.slot_suffix);
+      dd if=/dev/block/by-name/init_boot$SL of=/sdcard/__init_boot.img 2>/dev/null;
+      dd if=/dev/block/by-name/vbmeta$SL    of=/sdcard/__vbmeta.img    2>/dev/null' \
+      || die "Abziehen fehlgeschlagen – Geraet in die Recovery bringen"
+    adb pull /sdcard/__init_boot.img "$tpl/init_boot.img" >/dev/null || die "init_boot nicht geholt"
+    adb pull /sdcard/__vbmeta.img    "$tpl/vbmeta.img"    >/dev/null || die "vbmeta nicht geholt"
+    adb shell 'rm -f /sdcard/__init_boot.img /sdcard/__vbmeta.img' >/dev/null 2>&1
+    c "Rohlinge in $tpl"
+  fi
+
+  c "init_boot mit der Noxis-Ramdisk bauen"
+  python3 "$HERE/kernel/tools/mkinitboot.py" "$tpl/init_boot.img" "$rd" "$out/init_boot.img" \
+    || die "init_boot konnte nicht gebaut werden"
+  local isz psz
+  isz=$(stat -c %s "$out/init_boot.img")
+  psz=$(stat -c %s "$tpl/init_boot.img")
+  [ "$isz" -le "$psz" ] || die "init_boot.img $isz Bytes > Partition $psz Bytes – Module aus dem Initramfs nehmen"
+  c "init_boot.img: $((isz / 1024)) KB von $((psz / 1024)) KB"
+
+  if adb devices 2>/dev/null | grep -qE 'recovery|device$'; then
+    c "Geraet in den Bootloader schicken"
+    adb reboot bootloader >/dev/null 2>&1; sleep 3
+  fi
+  local i=0
+  until fastboot devices 2>/dev/null | grep -q fastboot; do
+    sleep 1; i=$((i + 1))
+    [ "$i" -ge 180 ] && die "kein Geraet im Bootloader"
+    [ "$i" = 1 ] && c "Handy in den Bootloader bringen: Power lang, dann Power + Leiser"
+  done
+
+  c "vbmeta entschaerfen (nur das Haupt-vbmeta)"
+  fastboot --disable-verity --disable-verification flash vbmeta "$tpl/vbmeta.img" || die "flash vbmeta"
+  c "Rootfs schreiben (dauert ein paar Minuten)"
+  fastboot flash userdata "$rootfs" || die "flash userdata"
+  c "Kernel schreiben"
+  fastboot flash boot "$boot" || die "flash boot"
+  c "Initramfs schreiben"
+  fastboot flash init_boot "$out/init_boot.img" || die "flash init_boot"
+  fastboot set_active a >/dev/null 2>&1
+  c "starten"
+  fastboot reboot >/dev/null 2>&1
+  c "Fertig. Erster Start dauert ein bis drei Minuten (resize2fs + systemd)."
+  c "Anmeldung: Benutzer $NUSER, PIN $NPIN"
+}
+
+# ------------------------------------------------------------ restore
+# Stock-Bootkette zurueck, damit die Recovery wieder erreichbar ist. userdata
+# bleibt unangetastet.
+cmd_restore() {
+  command -v fastboot >/dev/null || die "fastboot fehlt"
+  local out tpl
+  out="$(desktop_dir)/noxis-linux"
+  tpl="$out/stock"
+  [ -f "$tpl/vbmeta.img" ] && [ -f "$tpl/init_boot.img" ] || die "keine Rohlinge in $tpl – erst: $0 flash"
+  [ -f "$tpl/boot.img" ] || die "$tpl/boot.img fehlt – Stock-boot aus einem Backup dorthin legen"
+  local i=0
+  until fastboot devices 2>/dev/null | grep -q fastboot; do
+    sleep 1; i=$((i + 1))
+    [ "$i" -ge 180 ] && die "kein Geraet im Bootloader"
+    [ "$i" = 1 ] && c "Handy in den Bootloader bringen: Power lang, dann Power + Leiser"
+  done
+  fastboot flash vbmeta    "$tpl/vbmeta.img"    || die "flash vbmeta"
+  fastboot flash boot      "$tpl/boot.img"      || die "flash boot"
+  fastboot flash init_boot "$tpl/init_boot.img" || die "flash init_boot"
+  fastboot set_active a >/dev/null 2>&1
+  c "Stock wiederhergestellt – Recovery mit: fastboot reboot recovery"
+}
+
 cmd_verify() {
   local img="$OUT/rootfs.img"
   [ -f "$img" ] || die "rootfs.img missing"
@@ -477,5 +578,6 @@ case "${1:-}" in
   check) cmd_check ;; opsec) cmd_opsec ;; fetch) cmd_fetch ;; rootfs) cmd_rootfs ;;
   image) cmd_image ;; boot) cmd_boot ;; verify) cmd_verify ;; cleanup) cmd_cleanup ;;
   all) cmd_all ;; container) cmd_container ;; kernel) cmd_kernel ;;
+  flash) cmd_flash ;; restore) cmd_restore ;;
   *) sed -n '2,21p' "$0" ;;
 esac

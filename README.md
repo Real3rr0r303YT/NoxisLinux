@@ -50,6 +50,30 @@
 - **Waydroid** – run Android apps in a container
 - **Builds** – `git --depth=1`, signature checks, SHA-256, automatic cleanup
 
+## Installation auf dem Gerät
+
+```sh
+./build-noxis-linux.sh kernel      # boot.img + initramfs.cpio.lz4
+./build-noxis-linux.sh container   # rootfs-sparse.img
+./build-noxis-linux.sh flash       # vbmeta, userdata, boot, init_boot
+```
+
+`flash` zieht beim ersten Mal `init_boot` und `vbmeta` als Rohlinge vom Gerät
+(dafür muss es in der Recovery mit `adb` erreichbar sein) und legt sie unter
+`<Ausgabe>/stock/` ab. Zurück zur Stock-Bootkette, damit die Recovery wieder
+startet: `./build-noxis-linux.sh restore` (`userdata` bleibt unangetastet;
+`stock/boot.img` muss dafür aus einem Backup dort liegen).
+
+Zwei Eigenheiten dieses Geräts, die der Befehl berücksichtigt und die man von
+Hand leicht falsch macht:
+
+- Die Ramdisk muss nach `init_boot`. Der Bootloader ignoriert die Ramdisk im
+  `boot.img`, sobald eine `init_boot`-Partition existiert.
+- Nur das Haupt-`vbmeta` darf mit `--disable-verity --disable-verification`
+  geflasht werden. Werden `vbmeta_system` und `vbmeta_vendor` mitentschärft,
+  bootet das Gerät gar nicht mehr und fällt sofort in fastboot zurück — auch
+  mit Stock-Kernel und Stock-Recovery.
+
 ## Quick start
 
 ```bash
