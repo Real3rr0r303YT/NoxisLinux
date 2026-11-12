@@ -114,6 +114,67 @@ def _write(path, text):
     os.replace(tmp, path)
 
 
+PIN_MIN, PIN_MAX = 4, 32
+USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
+
+def check_pin(pin):
+    """None wenn brauchbar, sonst 'digits' oder 'length'."""
+    if not isinstance(pin, str) or not pin.isdigit():
+        return "digits"
+    if not PIN_MIN <= len(pin) <= PIN_MAX:
+        return "length"
+    return None
+
+
+def default_user(passwd=None):
+    """Erster regulaerer Benutzer: uid >= 1000 mit echter Shell.
+
+    Der Display-Manager bestimmt den Benutzer selbst und uebernimmt nicht, was
+    der Greeter ihm nennt -- sonst koennte der Anmeldebildschirm aussuchen,
+    wessen Passwort die Ersteinrichtung setzt.
+    """
+    rows = passwd if passwd is not None else [
+        (e.pw_name, e.pw_uid, e.pw_shell) for e in __import__("pwd").getpwall()]
+    for name, uid, shell in sorted(rows, key=lambda r: r[1]):
+        if uid >= 1000 and uid < 65534 and shell and not shell.endswith(("nologin", "false")):
+            return name
+    return None
+
+
+def set_user(user, pin=None, fullname=None, root="/"):
+    """PIN und Anzeigenamen setzen. Laeuft als root im noxis-dm.
+
+    Alles wird geprueft, veraendert wird nur bei root == "/" -- so laesst sich
+    der Pfad testen, ohne am laufenden System zu drehen.
+    """
+    if not user or not USER_RE.match(user):
+        raise ValueError(f"invalid user: {user}")
+    if fullname:
+        if any(c in fullname for c in ":\n\r"):
+            raise ValueError("invalid name")
+        if len(fullname) > 64:
+            raise ValueError("name too long")
+    if pin is not None:
+        bad = check_pin(pin)
+        if bad:
+            raise ValueError(f"invalid pin: {bad}")
+    if root != "/":
+        return
+    try:
+        if pin is not None:
+            r = subprocess.run(["chpasswd"], input=f"{user}:{pin}\n", text=True,
+                               capture_output=True, timeout=30)
+            if r.returncode != 0:
+                raise RuntimeError((r.stderr or "chpasswd failed").strip().splitlines()[-1])
+        if fullname:
+            r = subprocess.run(["usermod", "-c", fullname, user], capture_output=True, timeout=30)
+            if r.returncode != 0:
+                raise RuntimeError("usermod failed")
+    except subprocess.SubprocessError as e:
+        raise RuntimeError(str(e)) from e
+
+
 def apply(lang, tz, root="/", compile_schemas=True):
     if lang not in LANGS:
         raise ValueError(f"unknown language: {lang}")

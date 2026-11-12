@@ -179,6 +179,23 @@ class Authenticator:
             tz, source, zones = setup.suggest(lang, setup.detect_mcc(), root)
             return {"type": "noxis_setup_info", "needed": not setup.is_done(root), "suggested": tz,
                     "source": source, "zones": zones, "all_zones": setup.all_zones(root)}
+        if t == "noxis_setup_user":
+            # Nur vor dem Abschluss der Ersteinrichtung: danach aendert man die
+            # PIN angemeldet in den Einstellungen, nicht vom Anmeldebildschirm.
+            root = self.conf.get("setup_root", "/")
+            if setup.is_done(root):
+                return err("error", "setup already done")
+            user = setup.default_user()
+            if not user:
+                return err("error", "no regular user")
+            try:
+                setup.set_user(user, req.get("pin"), req.get("name"), root)
+            except (ValueError, RuntimeError, OSError) as e:
+                log(f"setup user: {e}")
+                return err("error", str(e))
+            log(f"setup: user {user} updated"
+                f"{' (pin)' if req.get('pin') else ''}{' (name)' if req.get('name') else ''}")
+            return {"type": "success"}
         if t == "noxis_setup":
             root = self.conf.get("setup_root", "/")
             if setup.is_done(root):          # after first boot: change only when logged in (Settings)

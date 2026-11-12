@@ -48,6 +48,7 @@ class Greeter(Gtk.ApplicationWindow):
         self.busy = False
         self.mode = core.default_mode()
         self.setup_data = None
+        self.sp_tz, self.sp_first, self.sp_buf = None, None, None
 
         self.overlay = Gtk.Overlay()
         self.set_child(self.overlay)
@@ -286,7 +287,7 @@ class Greeter(Gtk.ApplicationWindow):
         if src:
             sug_box.append(Gtk.Label(label=i18n.tr(lang, src), css_classes=["noxis-tz-src"]))
         sug.set_child(sug_box)
-        sug.connect("clicked", lambda *_: self.finish_setup(self.tz_choice))
+        sug.connect("clicked", lambda *_: self.show_pin_page(self.tz_choice))
         page.append(sug)
 
         search = Gtk.SearchEntry(placeholder_text=i18n.tr(lang, "search"))
@@ -301,7 +302,7 @@ class Greeter(Gtk.ApplicationWindow):
         needle = {"q": ""}
         lst.set_filter_func(lambda row: needle["q"] in row.tz.lower().replace("_", " "))
         search.connect("search-changed", lambda e: (needle.__setitem__("q", e.get_text().lower()), lst.invalidate_filter()))
-        lst.connect("row-activated", lambda _l, row: self.finish_setup(row.tz))
+        lst.connect("row-activated", lambda _l, row: self.show_pin_page(row.tz))
         scroller = Gtk.ScrolledWindow(vexpand=True, child=lst)
         page.append(scroller)
 
@@ -309,7 +310,7 @@ class Greeter(Gtk.ApplicationWindow):
         back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
         back.connect("clicked", lambda *_: self.stack.set_visible_child_name("lang"))
         nxt = Gtk.Button(label=i18n.tr(lang, "next"), css_classes=["noxis-chip", "noxis-primary"])
-        nxt.connect("clicked", lambda *_: self.finish_setup(self.selected_tz(lst) or self.tz_choice))
+        nxt.connect("clicked", lambda *_: self.show_pin_page(self.selected_tz(lst) or self.tz_choice))
         nav.append(back)
         nav.append(nxt)
         page.append(nav)
@@ -322,14 +323,102 @@ class Greeter(Gtk.ApplicationWindow):
         row = lst.get_selected_row()
         return getattr(row, "tz", None) if row else None
 
-    def finish_setup(self, tz):
+    # ---- eigene PIN festlegen (zwei Durchgaenge) -----------------------
+    # Hier kein gemischtes Zahlenfeld: beim Festlegen hilft die gewohnte
+    # Anordnung, und es gibt noch kein Geheimnis zu schuetzen.
+    def show_pin_page(self, tz):
+        self.sp_tz = tz
+        self.sp_first = None
+        self.sp_buf = core.Pin()
+        old = self.stack.get_child_by_name("setpin")
+        if old:
+            self.stack.remove(old)
+        self.stack.add_named(self.build_pin_page(), "setpin")
+        self.stack.set_visible_child_name("setpin")
+
+    def build_pin_page(self):
+        lang = self.lang
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                       css_classes=["noxis-root", "noxis-setup"])
+        title, _ = icon_label("channel-secure-symbolic", i18n.tr(lang, "set_pin"), "noxis-title")
+        page.append(title)
+        self.sp_sub = Gtk.Label(label=i18n.tr(lang, "set_pin"), css_classes=["noxis-subtitle"])
+        page.append(self.sp_sub)
+        self.sp_dots = Gtk.Label(label=" ", css_classes=["noxis-dots"])
+        page.append(self.sp_dots)
+        self.sp_msg = Gtk.Label(label=" ", css_classes=["noxis-msg"])
+        page.append(self.sp_msg)
+        grid = Gtk.Grid(row_spacing=14, column_spacing=22, halign=Gtk.Align.CENTER,
+                        valign=Gtk.Align.CENTER, vexpand=True, css_classes=["noxis-keypad"])
+        for i, k in enumerate(core.keypad(shuffle=False)):
+            if k == "⌫":
+                b = Gtk.Button(icon_name="edit-clear-symbolic", css_classes=["noxis-key", "noxis-key-side"])
+                b.connect("clicked", lambda *_: self.sp_back())
+            elif k == "✓":
+                b = Gtk.Button(icon_name="object-select-symbolic", css_classes=["noxis-key", "noxis-key-ok"])
+                b.connect("clicked", lambda *_: self.sp_submit())
+            else:
+                b = Gtk.Button(label=k, css_classes=["noxis-key"])
+                b.connect("clicked", lambda _b, d=k: self.sp_digit(d))
+            grid.attach(b, i % 3, i // 3, 1, 1)
+        page.append(grid)
+        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
+        back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
+        back.connect("clicked", lambda *_: self.stack.set_visible_child_name("tz"))
+        later = Gtk.Button(label=i18n.tr(lang, "later"), css_classes=["noxis-chip"])
+        later.connect("clicked", lambda *_: self.finish_setup(self.sp_tz, None))
+        nav.append(back)
+        nav.append(later)
+        page.append(nav)
+        self.setup_msg = self.sp_msg
+        return page
+
+    def sp_refresh(self):
+        self.sp_dots.set_label("•" * len(self.sp_buf) or " ")
+
+    def sp_digit(self, d):
+        if self.stack.get_visible_child_name() != "setpin":
+            return
+        self.sp_buf.add(d)
+        self.sp_refresh()
+
+    def sp_back(self):
+        self.sp_buf.back()
+        self.sp_refresh()
+
+    def sp_submit(self):
+        pin = self.sp_buf.take()
+        self.sp_refresh()
+        if len(pin) < 4:
+            self.sp_msg.set_label(i18n.tr(self.lang, "pin_short"))
+            return
+        if self.sp_first is None:
+            self.sp_first = pin
+            self.sp_sub.set_label(i18n.tr(self.lang, "pin_repeat"))
+            self.sp_msg.set_label(" ")
+            return
+        if pin != self.sp_first:
+            self.sp_first = None
+            self.sp_sub.set_label(i18n.tr(self.lang, "set_pin"))
+            self.sp_msg.set_label(i18n.tr(self.lang, "pin_mismatch"))
+            return
+        self.finish_setup(self.sp_tz, pin)
+
+    def finish_setup(self, tz, pin=None):
         self.setup_msg.set_label(i18n.tr(self.lang, "applying"))
 
         def work():
             try:
                 g = Greetd()
                 try:
-                    ok, detail = g.setup(self.lang, tz)
+                    # Reihenfolge: erst die PIN, dann Sprache und Zeitzone --
+                    # setup.apply schreibt am Ende die Fertig-Markierung, und
+                    # danach nimmt der Display-Manager keine PIN mehr an.
+                    ok, detail = True, ""
+                    if pin:
+                        ok, detail = g.setup_user(pin=pin)
+                    if ok:
+                        ok, detail = g.setup(self.lang, tz)
                 finally:
                     g.close()
             except (GreetdError, OSError) as e:
@@ -371,7 +460,21 @@ class Greeter(Gtk.ApplicationWindow):
             self.refresh_dots()
 
     def on_key(self, _ctrl, keyval, _code, _state):
-        if self.stack.get_visible_child_name() != "login":
+        page = self.stack.get_visible_child_name()
+        if page == "setpin":
+            name = Gdk.keyval_name(keyval) or ""
+            if name.startswith("KP_") and name[3:].isdigit():
+                name = name[3:]
+            if len(name) == 1 and name.isdigit():
+                self.sp_digit(name)
+            elif name == "BackSpace":
+                self.sp_back()
+            elif name in ("Return", "KP_Enter"):
+                self.sp_submit()
+            else:
+                return False
+            return True
+        if page != "login":
             return False
         name = Gdk.keyval_name(keyval) or ""
         if name.startswith("KP_") and name[3:].isdigit():

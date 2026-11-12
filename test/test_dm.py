@@ -173,6 +173,42 @@ chn = dict(c); chn["renderer"] = ""
 e3 = dm.base_env(GPW, chn, "greeter")
 check("renderer empty leaves WLR_RENDERER unset", "WLR_RENDERER" not in e3, e3)
 
+print("== Ersteinrichtung: PIN + Benutzer")
+sys.path.insert(0, DMDIR)
+import setup as nxsetup  # noqa: E402
+import i18n as nxi18n  # noqa: E402
+
+check("PIN 1234 ist brauchbar", nxsetup.check_pin("1234") is None)
+check("PIN 12 zu kurz", nxsetup.check_pin("12") == "length")
+check("PIN mit Buchstaben abgelehnt", nxsetup.check_pin("12ab") == "digits")
+check("PIN None abgelehnt", nxsetup.check_pin(None) == "digits")
+check("PIN 33 Ziffern zu lang", nxsetup.check_pin("1" * 33) == "length")
+
+rows = [("root", 0, "/bin/bash"), ("noxis-greeter", 103, "/usr/sbin/nologin"),
+        ("nobody", 65534, "/usr/sbin/nologin"), ("zweiter", 1001, "/bin/bash"),
+        ("noxis", 1000, "/bin/bash")]
+check("default_user nimmt den ersten regulaeren", nxsetup.default_user(rows) == "noxis")
+check("default_user ignoriert nologin und nobody",
+      nxsetup.default_user([("noxis-greeter", 103, "/usr/sbin/nologin"),
+                            ("nobody", 65534, "/usr/sbin/nologin")]) is None)
+
+TR = os.path.join(T, "fakeroot")
+os.makedirs(TR, exist_ok=True)
+nxsetup.set_user("noxis", "4711", "Test Name", root=TR)   # darf nichts anfassen
+check("set_user prueft, aendert aber nichts bei root != /", not os.path.exists(os.path.join(TR, "etc/shadow")))
+for bad, why in ((("", "1234", None), "leerer Benutzer"), (("../root", "1234", None), "Pfad im Namen"),
+                 (("noxis", "12", None), "zu kurze PIN"), (("noxis", "1234", "a:b"), "Doppelpunkt im Namen"),
+                 (("noxis", "1234", "x" * 65), "zu langer Name")):
+    try:
+        nxsetup.set_user(bad[0], bad[1], bad[2], root=TR)
+        check(f"set_user lehnt ab: {why}", False)
+    except ValueError:
+        check(f"set_user lehnt ab: {why}", True)
+
+missing = [k for k in ("set_pin", "pin_repeat", "pin_mismatch", "pin_short", "later")
+           if k not in nxi18n.T or len(nxi18n.T[k]) != len(nxi18n.ORDER)]
+check("PIN-Texte in allen sieben Sprachen", not missing, missing)
+
 shutil.rmtree(T, ignore_errors=True)
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

@@ -85,6 +85,15 @@ class Greetd:
     def setup_info(self, lang):
         return self.request({"type": "noxis_setup_info", "lang": lang})
 
+    def setup_user(self, pin=None, name=None):
+        msg = {"type": "noxis_setup_user"}
+        if pin:
+            msg["pin"] = pin
+        if name:
+            msg["name"] = name
+        r = self.request(msg)
+        return r.get("type") == "success", r.get("description", "")
+
     def setup(self, lang, timezone):
         r = self.request({"type": "noxis_setup", "lang": lang, "timezone": timezone})
         return r.get("type") == "success", r.get("description", "")
