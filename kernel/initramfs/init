@@ -87,15 +87,37 @@ load_modules() {
   log "modules: $ok loaded, $fail failed ($pass passes)"
 }
 
+rebind_dwc3() {
+  d=""
+  for c in /sys/bus/platform/drivers/msm-dwc3 /sys/bus/platform/drivers/dwc3; do
+    [ -d "$c" ] && { d="$c"; break; }
+  done
+  [ -n "$d" ] || { log "no dwc3 driver in sysfs"; return 1; }
+  n=0
+  for dev in /sys/bus/platform/devices/*ssusb* /sys/bus/platform/devices/*dwc3*; do
+    [ -e "$dev" ] || continue
+    b=${dev##*/}
+    echo "$b" > "$d/unbind" 2>/dev/null
+    if echo "$b" > "$d/bind" 2>/dev/null; then log "rebind $b ok"; n=$((n + 1)); else log "rebind $b failed"; fi
+  done
+  [ "$n" -gt 0 ] || log "no dwc3 device to rebind"
+}
+
 usb_debug() {
   g=/sys/kernel/config/usb_gadget/noxis
   # Auf den UDC warten: dwc3 bindet erst, wenn PMIC, Regulatoren und die
   # USB-PHYs durchgeprobt sind. Direkt nach dem Laden der Module ist
   # /sys/class/udc noch leer, auch wenn alles in Ordnung ist.
-  i=0; udc=""
+  i=0; udc=""; rebound=0
   while [ "$i" -lt "${NOXIS_UDC_TRIES:-150}" ]; do
     udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
     [ -n "$udc" ] && break
+    # dwc3 probt, bevor die eUSB2-PHY gebunden ist, gibt nach wenigen
+    # Millisekunden auf und wird danach nicht mehr angestossen. Einmal von
+    # Hand neu binden, sobald die PHY Zeit hatte.
+    if [ "$i" -ge 50 ] && [ "$rebound" -eq 0 ]; then
+      rebound=1; rebind_dwc3
+    fi
     sleep 0.1; i=$((i + 1))
   done
   if [ -z "$udc" ]; then
