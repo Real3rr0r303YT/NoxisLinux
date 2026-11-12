@@ -287,7 +287,19 @@ cmd_initramfs() {
   cp "$STAGE/lib/modules/$KREL"/modules.{order,builtin,builtin.modinfo} "$IRD/lib/modules/$KREL/" 2>/dev/null || true
   depmod -b "$IRD" "$KREL"
   c "Initramfs: $(grep -c . "$list") modules, $missing not built"
-  ( cd "$IRD" && find . -print0 | sort -z | cpio --null -o -H newc -R 0:0 --quiet | gzip -9n ) > "$KWORK/initramfs.cpio.gz"
+  ( cd "$IRD" && find . -print0 | sort -z | cpio --null -o -H newc -R 0:0 --quiet ) > "$KWORK/initramfs.cpio"
+  gzip -9nc "$KWORK/initramfs.cpio" > "$KWORK/initramfs.cpio.gz"
+  # Zusaetzlich lz4-legacy: der Bootloader haengt die vendor_boot-Ramdisk (lz4)
+  # und diese hier aneinander. Der lz4-Dekomprimierer des Kernels liest nach
+  # seinem Stream die naechsten vier Bytes und erwartet wieder die lz4-Magic;
+  # steht dort ein gzip-Header, bricht das Auspacken mit "Decoding failed" ab.
+  if command -v lz4 >/dev/null 2>&1; then
+    lz4 -l -9 -f "$KWORK/initramfs.cpio" "$KWORK/initramfs.cpio.lz4" >/dev/null 2>&1 \
+      && c "initramfs.cpio.lz4: $(du -h "$KWORK/initramfs.cpio.lz4" | cut -f1)  (fuer init_boot)"
+  else
+    warn "lz4 fehlt - initramfs.cpio.lz4 wird nicht erzeugt (noetig fuer init_boot)"
+  fi
+  rm -f "$KWORK/initramfs.cpio"
   c "initramfs.cpio.gz: $(du -h "$KWORK/initramfs.cpio.gz" | cut -f1)"
 }
 

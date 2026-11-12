@@ -466,7 +466,7 @@ cmd_kernel() {
     debian:trixie bash -c '
       set -e
       apt-get update -q && apt-get install -y -q --no-install-recommends clang lld llvm make bc bison flex perl \
-        python3 git cpio kmod mkbootimg libelf-dev libssl-dev dpkg-dev ca-certificates openssl >/dev/null
+        python3 git cpio kmod mkbootimg libelf-dev libssl-dev dpkg-dev ca-certificates openssl lz4 >/dev/null
       /noxis/kernel/build-noxis-kernel.sh all'
   c "Done: $out/boot.img + $out/device/*.deb"
 }
