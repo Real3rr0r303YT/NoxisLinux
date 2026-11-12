@@ -6,6 +6,8 @@
 #   ./noxis-diag.sh remove    Haken wieder entfernen
 #   ./noxis-diag.sh shell     noxis-shell und noxis-opsec aus dem Repo ins
 #                             installierte Rootfs kopieren (ohne Neubau)
+#   ./noxis-diag.sh seatd     seatd.service aktivieren und die Benutzer in die
+#                             Gruppe _seatd aufnehmen
 #
 # Warum nicht das Journal: noxis-opsec setzt Storage=volatile, das Journal
 # liegt also nur im RAM und ist nach dem Ausschalten weg. Und der
@@ -171,6 +173,34 @@ shell)
   done
   adb shell "sync" >/dev/null 2>&1
   ok "$n Dateien aktualisiert"
+  umount_root
+  ;;
+
+seatd)
+  # phoc fragt /run/seatd.sock als erstes ab. Debian liefert seatd mit,
+  # aktiviert den Dienst aber nicht; ohne ihn bleibt nur logind, und das gibt
+  # die Sitzung nicht heraus, solange sie einem anderen Benutzer gehoert.
+  need_recovery; mount_root
+  adb shell "[ -x $M/usr/bin/seatd ] || [ -x $M/usr/sbin/seatd ] && echo yes" 2>/dev/null | grep -q yes \
+    || { umount_root; die "seatd ist nicht installiert – Rootfs mit dem neuen Paketstand bauen"; }
+  adb shell "mkdir -p $M/etc/systemd/system/multi-user.target.wants" >/dev/null 2>&1
+  u=""
+  for cand in usr/lib/systemd/system/seatd.service lib/systemd/system/seatd.service; do
+    adb shell "[ -f $M/$cand ] && echo yes" 2>/dev/null | grep -q yes && { u="/$cand"; break; }
+  done
+  [ -n "$u" ] || { umount_root; die "seatd.service nicht gefunden"; }
+  adb shell "ln -sf $u $M/etc/systemd/system/multi-user.target.wants/seatd.service" >/dev/null 2>&1
+  adb shell "[ -L $M/etc/systemd/system/multi-user.target.wants/seatd.service ] && echo yes" 2>/dev/null | grep -q yes \
+    || { umount_root; die "seatd.service nicht verknuepft"; }
+  ok "seatd.service aktiviert ($u)"
+  # Gruppe _seatd: die Benutzer muessen den Socket benutzen duerfen.
+  for user in noxis noxis-greeter; do
+    adb shell "grep -q '^_seatd:' $M/etc/group && echo yes" 2>/dev/null | grep -q yes || continue
+    adb shell "grep -q '^_seatd:.*\b$user\b' $M/etc/group && echo have" 2>/dev/null | grep -q have && continue
+    adb shell "sed -i 's/^\(_seatd:[^:]*:[^:]*:\)\(.*\)\$/\1\2,$user/; s/,,/,/; s/:,/:/' $M/etc/group" >/dev/null 2>&1
+  done
+  adb shell "grep '^_seatd:' $M/etc/group" 2>/dev/null
+  adb shell "sync" >/dev/null 2>&1
   umount_root
   ;;
 
