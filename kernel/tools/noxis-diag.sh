@@ -158,7 +158,9 @@ shell)
       noxis-shell/usr/lib/noxis/noxis-dock \
       noxis-shell/etc/noxis/dm.conf \
       noxis-shell/etc/noxis/greeter.conf \
-      noxis-shell/etc/noxis/dock.conf
+      noxis-shell/etc/noxis/dock.conf \
+      noxis-shell/etc/pam.d/noxis \
+      noxis-shell/etc/pam.d/noxis-greeter
   do
     src="$REPO/$rel"
     [ -f "$src" ] || continue
