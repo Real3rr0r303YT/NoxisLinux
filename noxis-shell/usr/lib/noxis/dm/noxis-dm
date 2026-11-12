@@ -229,8 +229,18 @@ def base_env(pw, conf, cls):
     return env
 
 
-def spawn(pw, argv, env, vt):
-    """Child: new session, VT as controlling terminal, drop privileges, exec."""
+def spawn(pw, argv, env, vt, pre=None):
+    """Child: new session, VT as controlling terminal, drop privileges, exec.
+
+    pre wird im Kindprozess aufgerufen, solange es noch root ist, und liefert
+    die Umgebung. Die PAM-Sitzung dort zu oeffnen macht das Kind zum Anfuehrer
+    der logind-Sitzung. Oeffnet der Display-Manager sie selbst, traegt logind
+    dessen eigene PID ein -- und solange die Greeter-Sitzung noch abgebaut wird,
+    gibt logind fuer diese PID keine zweite Sitzung heraus, sondern dieselbe.
+    Der Compositor findet dann die fremde Greeter-Sitzung, darf sie nicht
+    uebernehmen ("Only owner of session may take control"), wartet auf eine
+    aktive Sitzung und laeuft in den Timeout.
+    """
     pid = os.fork()
     if pid:
         return pid
@@ -242,6 +252,8 @@ def spawn(pw, argv, env, vt):
             os.dup2(fd, 0)
             if fd > 2:
                 os.close(fd)
+        if pre is not None:
+            env = pre()
         os.initgroups(pw.pw_name, pw.pw_gid)
         os.setgid(pw.pw_gid)
         os.setuid(pw.pw_uid)
@@ -370,12 +382,14 @@ class DM:
         a = self.auth
         cmd, extra = a.session
         pw = pwd.getpwnam(a.user)
+        in_child = False
         try:
-            env = open_pam_session(a.pam, pw, self.conf, "user", extra)
             shell = pw.pw_shell if pw.pw_shell and os.path.exists(pw.pw_shell) else "/bin/sh"
             argv = [shell, "-l", "-c", 'exec "$@"', "noxis-session"] + cmd
             log(f"session for {pw.pw_name}: {' '.join(cmd)}")
-            pid = spawn(pw, argv, env, self.conf["vt"])
+            in_child = True
+            pid = spawn(pw, argv, None, self.conf["vt"],
+                        pre=lambda: open_pam_session(a.pam, pw, self.conf, "user", extra))
             self.children.add(pid)
             status = wait_child(pid)
             self.children.discard(pid)
@@ -384,7 +398,14 @@ class DM:
             log(f"session not started: {e}")
         finally:
             if a.pam:
-                a.pam.close_session()
+                # Hat das Kind die Sitzung geoeffnet, gehoert sie ihm: logind
+                # baut sie ab, sobald es endet. Ein close_session hier wuerde
+                # auf einem Handle ohne offene Sitzung fehlschlagen.
+                if not in_child:
+                    try:
+                        a.pam.close_session()
+                    except pam.PamError as e:
+                        log(f"close_session: {e}")
                 try:
                     a.pam.setcred(False)
                 except pam.PamError:
