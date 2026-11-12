@@ -27,8 +27,17 @@ M=/mnt/noxisroot
 OUTDIR="$HOME/noxis-backup/diag-$(date +%H%M%S)"
 
 need_recovery() {
-  adb devices 2>/dev/null | grep -q recovery \
-    || die "Geraet ist nicht in der Recovery. Erst: kernel/tools/noxis-try.sh --restore"
+  # Nach "noxis-try.sh --restore" ist die Recovery noch im Hochfahren, also
+  # warten statt sofort abzubrechen.
+  adb devices 2>/dev/null | grep -q recovery && return 0
+  c "warte auf die Recovery …"
+  local i=0
+  until adb devices 2>/dev/null | grep -q recovery; do
+    sleep 1; i=$((i + 1))
+    [ "$i" -ge 150 ] && die "Geraet ist nicht in der Recovery. Erst: kernel/tools/noxis-try.sh --restore"
+    [ $((i % 15)) -eq 0 ] && c "… noch nicht da (${i}s)"
+  done
+  ok "Recovery da"
 }
 
 mount_root() {
