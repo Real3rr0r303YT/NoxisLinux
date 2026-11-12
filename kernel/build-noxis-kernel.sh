@@ -56,7 +56,7 @@ EXT_MODULES=(
   "touch-drivers|TOUCH_ROOT|"
   "wlan/platform|WLAN_PLATFORM_ROOT|$WLAN_PLATFORM_OPTS"
   "wlan/qcacld-3.0|WLAN_ROOT|$WLAN_CLD_OPTS"
-  "datarmnet/core|RMNET_CORE_ROOT||-DCONFIG_RMNET_LA_PLATFORM -I@V/dataipa/drivers/platform/msm/include -I@V/datarmnet-ext/mem"
+  "datarmnet/core|RMNET_CORE_ROOT||-DCONFIG_RMNET_LA_PLATFORM -I@V/dataipa/drivers/platform/msm/include -I@V/dataipa/drivers/platform/msm/include/uapi -I@V/datarmnet-ext/mem"
   "datarmnet-ext/mem|RMNET_MEM_ROOT|"
   "dataipa|DATAIPA_ROOT|"
   "bt-kernel|BT_ROOT|CONFIG_MSM_BT_POWER=m CONFIG_BTFM_SLIM=m"
