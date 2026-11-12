@@ -259,12 +259,12 @@ cmd_initramfs() {
     ln -sf busybox "$IRD/bin/$a"
   done
   install -m 0755 "$HERE/initramfs/init" "$IRD/init"
-  # Zweite Kopie unter eigenem Namen: der Bootloader haengt die Ramdisk aus
-  # init_boot hinter unsere, und beim Entpacken gewinnt die spaetere Datei --
-  # Androids /init wuerde unseres also ueberschreiben. Unter /noxis-init
-  # kollidiert nichts, und rdinit=/noxis-init auf der Kommandozeile waehlt es
-  # aus. So laeuft Noxis per "fastboot boot", ohne dass init_boot angefasst
-  # werden muss, und das Geraet bleibt mit Android startfaehig.
+  # Zweite Kopie unter eigenem Namen, passend zu rdinit=/noxis-init. Das
+  # schuetzt davor, dass Androids /init unseres beim Zusammenhaengen der
+  # Ramdisks ueberschreibt. Es ersetzt das Flashen von init_boot NICHT: der
+  # Bootloader dieses Geraets ignoriert die Ramdisk im boot.img, sobald eine
+  # init_boot-Partition da ist (getestet, Ergebnis war "VFS: Unable to mount
+  # root fs on unknown-block(0,0)").
   install -m 0755 "$HERE/initramfs/init" "$IRD/noxis-init"
   install -m 0644 "$HERE/initramfs/udhcpd.conf" "$IRD/etc/udhcpd.conf"
 

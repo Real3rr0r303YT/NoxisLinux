@@ -96,11 +96,12 @@ wait_fastboot "Handy in den Bootloader bringen: Power lang drücken bis es ausge
 
 before=$(ifsnap)
 
-# init_boot wird absichtlich NICHT geflasht: unser Init laeuft ueber
-# rdinit=/noxis-init aus der Ramdisk im boot.img. Damit bleibt Androids
-# init_boot unangetastet, ein normaler Boot kommt sauber hoch statt zu loopen,
-# und der ramoops ueberlebt bis zur Recovery.
-if [ "${NOXIS_FLASH_INITBOOT:-0}" = 1 ]; then
+# init_boot MUSS geflasht werden. Der Bootloader dieses Geraets laedt die
+# Ramdisk aus dem boot.img nicht, sobald eine init_boot-Partition existiert --
+# getestet mit rdinit=/noxis-init, Ergebnis: "VFS: Unable to mount root fs on
+# unknown-block(0,0)". Mit NOXIS_FLASH_INITBOOT=0 laesst sich das Flashen
+# abschalten, dann startet aber nur Androids Ramdisk.
+if [ "${NOXIS_FLASH_INITBOOT:-1}" = 1 ]; then
   c "init_boot flashen (NOXIS_FLASH_INITBOOT=1)"
   fastboot flash init_boot init_boot.noxis.img >/dev/null 2>&1 || die "flash init_boot fehlgeschlagen"
 fi
@@ -137,7 +138,7 @@ fi
 # ----------------------------------------------------------- Fehlschlag: Log
 warn "kein Interface – ich hole das Log"
 wait_fastboot "Power lang drücken bis es ausgeht, dann Power + Leiser halten."
-[ "${NOXIS_FLASH_INITBOOT:-0}" = 1 ] && {
+[ "${NOXIS_FLASH_INITBOOT:-1}" = 1 ] && {
   c "Original-init_boot zurück"
   fastboot flash init_boot init_boot.orig.img >/dev/null 2>&1
 }
