@@ -23,7 +23,7 @@ KWORK="${NOXIS_KWORK:-$HOME/noxis-kernel-build}"
 KOUT="${NOXIS_KOUT:-$HERE/out-kernel}"
 JOBS="${NOXIS_JOBS:-$(nproc)}"
 BOOT_SIZE="${NOXIS_BOOT_SIZE:-67108864}"          # 64 MiB, taken from BOOT_STOCK=<boot.img> if given
-CMDLINE="${NOXIS_CMDLINE:-console=tty0 quiet splash loglevel=3 selinux=0 noxis.root=userdata}"
+CMDLINE="${NOXIS_CMDLINE:-console=tty0 quiet splash loglevel=3 selinux=0 rdinit=/noxis-init noxis.root=userdata}"
 PKGVER="1.0.0"
 
 # Qualcomm module makefiles expect the Android layout kernel_platform/msm-kernel + ../../vendor
@@ -259,6 +259,13 @@ cmd_initramfs() {
     ln -sf busybox "$IRD/bin/$a"
   done
   install -m 0755 "$HERE/initramfs/init" "$IRD/init"
+  # Zweite Kopie unter eigenem Namen: der Bootloader haengt die Ramdisk aus
+  # init_boot hinter unsere, und beim Entpacken gewinnt die spaetere Datei --
+  # Androids /init wuerde unseres also ueberschreiben. Unter /noxis-init
+  # kollidiert nichts, und rdinit=/noxis-init auf der Kommandozeile waehlt es
+  # aus. So laeuft Noxis per "fastboot boot", ohne dass init_boot angefasst
+  # werden muss, und das Geraet bleibt mit Android startfaehig.
+  install -m 0755 "$HERE/initramfs/init" "$IRD/noxis-init"
   install -m 0644 "$HERE/initramfs/udhcpd.conf" "$IRD/etc/udhcpd.conf"
 
   # first-stage modules (vendor_boot + recovery: storage, USB, display, touch)

@@ -12,7 +12,7 @@ set -u
 REPO="$HOME/NoxisLinux"
 BK="$HOME/noxis-backup"
 OUT="$HOME/Desktop/noxis-linux"
-CMDLINE="console=tty0 loglevel=7 selinux=0 panic=0 noxis.root=userdata noxis.debug=1"
+CMDLINE="console=tty0 loglevel=7 selinux=0 panic=0 rdinit=/noxis-init noxis.root=userdata noxis.debug=1"
 
 c()    { printf '\033[1;36m[noxis]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m[  ok ]\033[0m %s\n' "$*"; }
@@ -96,8 +96,14 @@ wait_fastboot "Handy in den Bootloader bringen: Power lang drücken bis es ausge
 
 before=$(ifsnap)
 
-c "init_boot flashen"
-fastboot flash init_boot init_boot.noxis.img >/dev/null 2>&1 || die "flash init_boot fehlgeschlagen"
+# init_boot wird absichtlich NICHT geflasht: unser Init laeuft ueber
+# rdinit=/noxis-init aus der Ramdisk im boot.img. Damit bleibt Androids
+# init_boot unangetastet, ein normaler Boot kommt sauber hoch statt zu loopen,
+# und der ramoops ueberlebt bis zur Recovery.
+if [ "${NOXIS_FLASH_INITBOOT:-0}" = 1 ]; then
+  c "init_boot flashen (NOXIS_FLASH_INITBOOT=1)"
+  fastboot flash init_boot init_boot.noxis.img >/dev/null 2>&1 || die "flash init_boot fehlgeschlagen"
+fi
 c "boot.img in den RAM laden und starten"
 fastboot boot boot.noxis.img >/dev/null 2>&1 || die "fastboot boot fehlgeschlagen"
 ok "gestartet – suche bis zu 90 Sekunden nach einem USB-Interface"
@@ -131,8 +137,11 @@ fi
 # ----------------------------------------------------------- Fehlschlag: Log
 warn "kein Interface – ich hole das Log"
 wait_fastboot "Power lang drücken bis es ausgeht, dann Power + Leiser halten."
-c "Original-init_boot zurück, damit die Recovery startet"
-fastboot flash init_boot init_boot.orig.img >/dev/null 2>&1
+[ "${NOXIS_FLASH_INITBOOT:-0}" = 1 ] && {
+  c "Original-init_boot zurück"
+  fastboot flash init_boot init_boot.orig.img >/dev/null 2>&1
+}
+c "Recovery starten"
 fastboot reboot recovery >/dev/null 2>&1
 ask "Falls die Recovery nach dem Entschlüsselungs-Passwort fragt: abbrechen, das brauchen wir nicht."
 wait_adb
