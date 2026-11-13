@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
 if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
-	systemctl disable --now noxis-usblock.service noxis-mullvad-setup.timer noxis-firewall.service >/dev/null 2>&1 || true
+	systemctl disable --now noxis-usblock.service noxis-mullvad-setup.timer noxis-firewall.service noxis-guard.service >/dev/null 2>&1 || true
 fi
 exit 0

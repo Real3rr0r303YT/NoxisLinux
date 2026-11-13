@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Noxis Guard
+Comment=Security center of Noxis OS
+Comment[de]=Sicherheitszentrale von Noxis OS
+Exec=noxis-guard
+Icon=security-high-symbolic
+Categories=System;Security;Settings;
+X-Purism-FormFactor=Workstation;Mobile;

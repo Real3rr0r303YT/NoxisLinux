@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+[Unit]
+Description=Noxis Guard: Neustart nach langer Sperre, WLAN/Bluetooth automatisch aus, 2G sperren
+After=NetworkManager.service ModemManager.service bluetooth.service systemd-logind.service
+
+[Service]
+ExecStart=/usr/lib/noxis/guard/noxis-guard-daemon
+Restart=always
+RestartSec=10
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

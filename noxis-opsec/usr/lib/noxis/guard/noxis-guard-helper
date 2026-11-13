@@ -1,0 +1,49 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+"""Noxis Guard – privilegierter Teil (pkexec). Nimmt nur bekannte Befehle an.
+
+  noxis-guard-helper set <schluessel> <wert>
+  noxis-guard-helper usblock on|off
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, "/usr/lib/noxis/guard")
+import guardcore as g  # noqa: E402
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        return "nur als root (pkexec)"
+    if len(argv) == 3 and argv[0] == "set":
+        key, value = argv[1], argv[2]
+        bad = g.validate(key, value)
+        if bad:
+            return bad
+        conf = g.load()
+        conf[key] = value
+        g.save(conf)
+        if key == "allow_2g":
+            g.apply_2g(value == "yes")
+        if key == "dns":
+            os.makedirs(os.path.dirname(g.RESOLVED_DROPIN), exist_ok=True)
+            with open(g.RESOLVED_DROPIN, "w") as f:
+                f.write(g.dns_dropin(value))
+            subprocess.run(["systemctl", "restart", "systemd-resolved.service"], check=False)
+        subprocess.run(["systemctl", "try-reload-or-restart", "noxis-guard.service"], check=False)
+        return None
+    if len(argv) == 2 and argv[0] == "usblock" and argv[1] in ("on", "off"):
+        act = ["enable", "--now"] if argv[1] == "on" else ["disable", "--now"]
+        r = subprocess.run(["systemctl", *act, "noxis-usblock.service"], capture_output=True, text=True)
+        return None if r.returncode == 0 else (r.stderr.strip() or "systemctl fehlgeschlagen")
+    return "unbekannter Befehl"
+
+
+if __name__ == "__main__":
+    err = main(sys.argv[1:])
+    if err:
+        print(f"noxis-guard-helper: {err}", file=sys.stderr)
+        sys.exit(1)

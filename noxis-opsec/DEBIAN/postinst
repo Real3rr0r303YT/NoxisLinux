@@ -17,7 +17,7 @@ if [ "$1" = configure ]; then
 	fi
 	for u in noxis-firewall.service noxis-mullvad-setup.service noxis-mullvad-setup.timer \
 	         noxis-usblock.service usbguard.service systemd-resolved.service \
-	         mullvad-daemon.service mullvad-early-boot-blocking.service; do
+	         mullvad-daemon.service mullvad-early-boot-blocking.service noxis-guard.service; do
 		systemctl enable "$u" >/dev/null 2>&1 || true
 	done
 	systemctl mask --quiet systemd-coredump.socket 2>/dev/null || true

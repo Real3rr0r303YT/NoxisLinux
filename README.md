@@ -156,7 +156,7 @@ Other options: `NOXIS_USER=noxis NOXIS_PIN=147147 NOXIS_DEVICE_DEBS=<folder> BOO
 | 11 | Firmware: `firmware_mnt` reachable from the rootfs (IPA asks for `ipa_fws.mdt` and gets -2); Wi-Fi needs the same source | open, blocks phase 7 |
 | 12 | Battery and charging: `qti_battery_charger` loads, but nothing shows in the interface -- and the device may discharge while Noxis runs. Until this is settled, run Noxis on the cable only | open |
 | 13 | Essential Key as a shortcut (screenshot and others) -- it arrives as an input event, so it can be bound once the session is stable | open |
-| 14 | NoxisGuard for Noxis Linux (exists only in Noxis OS so far) | open |
+| 14 | NoxisGuard for Noxis Linux (status, auto reboot, WLAN/BT auto-off, 2G block, Mullvad, DNS) | done (untested on device) |
 | 15 | Dual slot without a PC: slot A keeps the stock boot chain (recovery reachable), slot B carries Noxis (boot_b, init_boot_b, vbmeta_b relaxed), userdata is shared. Recovery → Noxis by switching to B in OrangeFox; Noxis → recovery needs `qbootctl` in the rootfs and a "restart into recovery" action. Firmware mounts follow the slot suffix, so modem_b/dsp_b must be populated | planned |
 | 9 | Camera | open (Qualcomm camera stack is Android-only) |
 
@@ -316,6 +316,7 @@ On devices with video out (e.g. PinePhone with dock, Librem 5) desktop mode kick
 sudo ./test/test_build.sh <arkenfox/user.js>         # 25  build flow, real GPG/ext4 checks, safe cleanup
 python3 test/test_shell.py                           # 78  protocol, PIN, lockout, displays, status icons, branding
 sudo python3 test/test_dm.py                         # 26  noxis-dm with real PAM, fork, privilege drop
+python3 test/test_guard.py                           # 17  Noxis Guard: settings, 2G logic, timers
 python3 test/test_locale.py                          # 73  7 languages, MCC → time zone, setup, build prompt
 ./test/test_hw.sh                                    # 27  firmware links, radio bring-up, Bluetooth power, units
 dbus-run-session -- python3 test/test_usblock.py     # 8   USB lock over a real D-Bus

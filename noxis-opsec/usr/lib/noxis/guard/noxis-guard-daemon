@@ -1,0 +1,71 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+"""Noxis Guard – Dienst: automatischer Neustart nach langer Sperre, WLAN und
+Bluetooth automatisch aus, 2G gesperrt halten. Prueft jede Minute."""
+import sys
+import time
+
+sys.path.insert(0, "/usr/lib/noxis/guard")
+import guardcore as g  # noqa: E402
+
+
+def log(msg):
+    print(f"noxis-guard: {msg}", flush=True)
+
+
+def locked():
+    """Gesperrt = keine aktive Benutzersitzung oder deren LockedHint=yes."""
+    rc, out = g.run(["loginctl", "list-sessions", "--no-legend"])
+    if rc != 0:
+        return False
+    for line in out.splitlines():
+        sid = line.split()[0] if line.split() else ""
+        if not sid:
+            continue
+        rc, info = g.run(["loginctl", "show-session", sid, "-p", "Class", "-p", "Active", "-p", "LockedHint"])
+        kv = dict(x.split("=", 1) for x in info.splitlines() if "=" in x)
+        if kv.get("Class") == "user" and kv.get("Active") == "yes":
+            return kv.get("LockedHint") == "yes"
+    return True     # nur Anmeldebildschirm
+
+
+def wifi_idle():
+    rc, out = g.run(["nmcli", "-t", "-f", "WIFI", "general"])
+    if rc != 0 or out.strip() != "enabled":
+        return False
+    rc, out = g.run(["nmcli", "-t", "-f", "TYPE,STATE", "connection", "show", "--active"])
+    return "802-11-wireless:activated" not in out
+
+
+def bt_idle():
+    rc, out = g.run(["bluetoothctl", "show"])
+    if rc != 0 or "Powered: yes" not in out:
+        return False
+    rc, out = g.run(["bluetoothctl", "devices", "Connected"])
+    return rc == 0 and not out.strip()
+
+
+def main():
+    since = {"lock": None, "wifi": None, "bt": None}
+    log("gestartet")
+    while True:
+        conf = g.load()
+        now = time.monotonic()
+        for key, state in (("lock", locked()), ("wifi", wifi_idle()), ("bt", bt_idle())):
+            since[key] = (since[key] or now) if state else None
+        if g.due(since["lock"], now, int(conf["reboot_hours"]) * 60):
+            log(f"seit {conf['reboot_hours']} h gesperrt – Neustart")
+            g.run(["systemctl", "reboot"])
+        if g.due(since["wifi"], now, int(conf["wifi_off_min"])):
+            log("WLAN ohne Verbindung – aus"); g.run(["nmcli", "radio", "wifi", "off"]); since["wifi"] = None
+        if g.due(since["bt"], now, int(conf["bt_off_min"])):
+            log("Bluetooth ohne Geraet – aus"); g.run(["bluetoothctl", "power", "off"]); since["bt"] = None
+        if conf["allow_2g"] == "no" and g.two_g_allowed():
+            log("2G erlaubt – sperre es"); g.apply_2g(False)
+        time.sleep(60)
+
+
+if __name__ == "__main__":
+    main()

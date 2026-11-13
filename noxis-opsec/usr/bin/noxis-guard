@@ -1,0 +1,204 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+"""Noxis Guard – Sicherheitszentrale von Noxis Linux (Port der Noxis-OS-App)."""
+import subprocess
+import sys
+import threading
+
+sys.path.insert(0, "/usr/lib/noxis/guard")
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk  # noqa: E402
+
+import guardcore as g  # noqa: E402
+
+HELPER = "/usr/lib/noxis/guard/noxis-guard-helper"
+CSS = b"""
+.guard-title { font-size: 28px; font-weight: 800; }
+.guard-sub { opacity: 0.7; }
+.guard-head { font-weight: 700; opacity: 0.8; margin-top: 14px; }
+.guard-ok { color: #7CFFB2; } .guard-warn { color: #FFB27C; }
+.guard-score { font-size: 19px; font-weight: 700; }
+.guard-row { padding: 10px 6px; }
+.guard-hint { opacity: 0.65; font-size: 12px; }
+.guard-credit { opacity: 0.5; font-size: 11px; margin-top: 18px; }
+"""
+
+
+def helper(*args):
+    r = subprocess.run(["pkexec", HELPER, *args], capture_output=True, text=True)
+    return r.returncode == 0, (r.stderr or "").strip()
+
+
+def hours(v):
+    return "Aus" if v == 0 else f"nach {v} Std."
+
+
+def mins(v):
+    return "Aus" if v == 0 else f"nach {v} Min."
+
+
+class Guard(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Noxis Guard", default_width=420, default_height=820)
+        prov = Gtk.CssProvider()
+        prov.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_display(self.get_display(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=16, margin_end=16,
+                           margin_top=12, margin_bottom=24)
+        self.set_child(Gtk.ScrolledWindow(child=self.box, hscrollbar_policy=Gtk.PolicyType.NEVER))
+        self.msg = Gtk.Label(xalign=0, wrap=True, css_classes=["guard-warn"])
+        self.render()
+
+    # ---------------------------------------------------------------- Aufbau
+    def clear(self):
+        c = self.box.get_first_child()
+        while c:
+            n = c.get_next_sibling()
+            self.box.remove(c)
+            c = n
+
+    def render(self):
+        self.clear()
+        self.conf = g.load()
+        self.box.append(Gtk.Label(label="Noxis Guard", xalign=0, css_classes=["guard-title"]))
+        self.box.append(Gtk.Label(label="Schutzfunktionen von Noxis OS", xalign=0, css_classes=["guard-sub"]))
+        self.status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.box.append(self.head("Schutzstatus"))
+        self.box.append(self.status_box)
+        self.status_box.append(Gtk.Label(label="wird geprüft …", xalign=0, css_classes=["guard-sub"]))
+        threading.Thread(target=self.load_status, daemon=True).start()
+        self.box.append(self.msg)
+
+        self.box.append(self.head("Gerätesperre"))
+        self.choice("Automatischer Neustart",
+                    "Startet neu, wenn das Gerät so lange gesperrt war. Danach ist alles wieder "
+                    "vollständig verschlüsselt.", g.REBOOT_HOURS, hours, "reboot_hours")
+        self.toggle("USB-C nur Laden, wenn gesperrt",
+                    "Blockiert Datenverbindungen über USB, solange das Gerät gesperrt ist.",
+                    g.active("noxis-usblock.service"), lambda on: helper("usblock", "on" if on else "off"))
+        rc, out = g.run(["gsettings", "get", "org.gnome.desktop.notifications", "show-in-lock-screen"])
+        self.toggle("Benachrichtigungen auf dem Sperrbildschirm",
+                    "Aus = Inhalte von Nachrichten sind bei gesperrtem Gerät nicht lesbar.",
+                    out.strip() != "false",
+                    lambda on: (g.run(["gsettings", "set", "org.gnome.desktop.notifications",
+                                       "show-in-lock-screen", "true" if on else "false"])[0] == 0, ""))
+
+        self.box.append(self.head("Funk"))
+        self.choice("WLAN automatisch aus", "Schaltet WLAN ab, wenn so lange keine Verbindung besteht.",
+                    g.OFF_MIN, mins, "wifi_off_min")
+        self.choice("Bluetooth automatisch aus", "Schaltet Bluetooth ab, wenn so lange kein Gerät verbunden ist.",
+                    g.OFF_MIN, mins, "bt_off_min")
+        self.toggle("2G erlauben",
+                    "2G (GSM/EDGE) ist schwach oder gar nicht verschlüsselt und wird von IMSI-Catchern "
+                    "genutzt. Aus = nur 3G/4G/5G. Notrufe gehen immer.",
+                    self.conf["allow_2g"] == "yes",
+                    lambda on: helper("set", "allow_2g", "yes" if on else "no"))
+
+        self.box.append(self.head("Netzwerk"))
+        rc, out = g.run(["mullvad", "lockdown-mode", "get"])
+        if rc != 127:
+            import re
+            self.toggle("Mullvad: immer an + Killswitch",
+                        "Gesamter Datenverkehr nur durch Mullvad. Ohne VPN-Verbindung kein Internet.",
+                        re.search(r":\s*on\b", out.lower()) is not None, self.set_mullvad)
+        keys = list(g.DNS)
+        names = [g.DNS[k][0] for k in keys]
+        self.choice("Privates DNS (DNS-over-TLS)", "Verschlüsselt DNS-Anfragen über WLAN und Mobilfunk.",
+                    keys, lambda k: g.DNS[k][0], "dns", names=names)
+
+        self.box.append(Gtk.Label(label="Noxis Guard · Made by 3rr0r303YT on TikTok · GPL-3.0",
+                                  xalign=0, css_classes=["guard-credit"]))
+
+    def head(self, text):
+        return Gtk.Label(label=text, xalign=0, css_classes=["guard-head"])
+
+    def row(self, title, hint, widget):
+        r = Gtk.Box(spacing=12, css_classes=["guard-row"])
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        col.append(Gtk.Label(label=title, xalign=0, wrap=True))
+        col.append(Gtk.Label(label=hint, xalign=0, wrap=True, css_classes=["guard-hint"]))
+        r.append(col)
+        widget.set_valign(Gtk.Align.CENTER)
+        r.append(widget)
+        self.box.append(r)
+
+    def toggle(self, title, hint, on, cb):
+        sw = Gtk.Switch(active=on)
+
+        def changed(s, _p):
+            def work():
+                ok, err = cb(s.get_active())
+                GLib.idle_add(self.after, ok, err)
+            threading.Thread(target=work, daemon=True).start()
+        sw.connect("notify::active", changed)
+        self.row(title, hint, sw)
+
+    def choice(self, title, hint, values, label, key, names=None):
+        names = names or [label(v) for v in values]
+        dd = Gtk.DropDown.new_from_strings(names)
+        cur = self.conf[key]
+        for i, v in enumerate(values):
+            if str(v) == cur:
+                dd.set_selected(i)
+
+        def changed(d, _p):
+            v = str(values[d.get_selected()])
+            if v == self.conf[key]:
+                return
+            threading.Thread(target=lambda: GLib.idle_add(self.after, *helper("set", key, v)), daemon=True).start()
+        dd.connect("notify::selected", changed)
+        self.row(title, hint, dd)
+
+    def set_mullvad(self, on):
+        st = "on" if on else "off"
+        a = g.run(["mullvad", "lockdown-mode", "set", st])[0]
+        b = g.run(["mullvad", "auto-connect", "set", st])[0]
+        if on:
+            g.run(["mullvad", "connect"])
+        return a == 0 and b == 0, "" if a == 0 else "Mullvad: erst anmelden (mullvad account login)"
+
+    def after(self, ok, err):
+        self.msg.set_label("" if ok else (err or "fehlgeschlagen"))
+        self.conf = g.load()
+        threading.Thread(target=self.load_status, daemon=True).start()
+        return False
+
+    # ---------------------------------------------------------------- Status
+    def load_status(self):
+        items = g.status(self.conf)
+        GLib.idle_add(self.show_status, items)
+
+    def show_status(self, items):
+        c = self.status_box.get_first_child()
+        while c:
+            n = c.get_next_sibling()
+            self.status_box.remove(c)
+            c = n
+        known = [i for i in items if i[1] is not None]
+        ok = sum(1 for i in known if i[1])
+        self.status_box.append(Gtk.Label(label=f"{ok} von {len(known)} Schutzfunktionen aktiv", xalign=0,
+                                         css_classes=["guard-score",
+                                                      "guard-ok" if ok == len(known) else "guard-warn"]))
+        for title, good, hint in items:
+            mark = "–" if good is None else ("✓" if good else "!")
+            text = f"{mark}  {title}" + ("" if good else f"\n     {hint}")
+            self.status_box.append(Gtk.Label(label=text, xalign=0, wrap=True,
+                                             css_classes=[] if good is None else
+                                             ["guard-ok" if good else "guard-warn"]))
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.noxis.Guard")
+
+    def do_activate(self):
+        (self.props.active_window or Guard(self)).present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

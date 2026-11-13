@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Noxis Linux – Made by 3rr0r303YT on TikTok
+// https://github.com/Real3rr0r303YT/NoxisLinux
+// Noxis Guard: Schalter ohne Passwort fuer die angemeldete Person am Geraet
+// (wie in Noxis OS). Der Helfer nimmt nur feste Befehle und Werte an.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/lib/noxis/guard/noxis-guard-helper" &&
+        subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

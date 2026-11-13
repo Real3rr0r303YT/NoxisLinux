@@ -4,3 +4,4 @@
 /etc/systemd/coredump.conf.d/90-noxis.conf
 /etc/sysctl.d/90-noxis.conf
 /etc/NetworkManager/conf.d/90-noxis.conf
+/etc/noxis/guard.conf
