@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
 # Mesa mit Turnip-KGSL-Backend fuer Noxis Linux (EXPERIMENTELL)
 #
 # Warum: der Kernel benutzt Qualcomms KGSL fuer die GPU. Debians Mesa spricht

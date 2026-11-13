@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
 """Replace the ramdisk inside an Android boot image (header v3/v4).
 
 Usage: mkinitboot.py <orig.img> <new-ramdisk> <out.img>
