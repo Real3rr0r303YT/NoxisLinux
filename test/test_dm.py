@@ -225,6 +225,36 @@ missing = [k for k in ("set_pin", "pin_repeat", "pin_mismatch", "pin_short", "la
            if k not in nxi18n.T or len(nxi18n.T[k]) != len(nxi18n.ORDER)]
 check("PIN-Texte in allen sieben Sprachen", not missing, missing)
 
+# ---- WLAN-Schritt der Ersteinrichtung
+import wifi as nxwifi  # noqa: E402
+scan = nxwifi.parse_scan("*:Heim\\:Netz:80:WPA2\n:Cafe:40:--\n:Heim\\:Netz:30:WPA2\n::70:WPA2\n:Nachbar:90:WPA3\n")
+check("Scan: aktives Netz zuerst, Doppelte zusammengefasst",
+      [n["ssid"] for n in scan] == ["Heim:Netz", "Nachbar", "Cafe"], scan)
+check("Scan: offenes Netz erkannt", not scan[2]["secure"] and scan[1]["secure"])
+check("WLAN: Passwort zu kurz abgelehnt", nxwifi.check("x", "1234567") is not None)
+check("WLAN: offenes Netz ohne Passwort ok", nxwifi.check("x", "") is None)
+check("WLAN: SSID mit Zeilenumbruch abgelehnt", nxwifi.check("a\nb", "12345678") is not None)
+kf = nxwifi.keyfile("Ab", "pa\\ss word", "u-1")
+check("Keyfile: SSID als Bytes, Backslash maskiert",
+      "ssid=65;98;" in kf and "psk=pa\\\\ss word" in kf and "key-mgmt=wpa-psk" in kf, kf)
+check("Keyfile: offenes Netz ohne wifi-security", "[wifi-security]" not in nxwifi.keyfile("Cafe", "", "u"))
+uid = nxwifi.connect("Heim", "geheim123", root=TD)
+kp = os.path.join(TD, nxwifi.NM_DIR, f"noxis-{uid}.nmconnection")
+check("connect schreibt Keyfile mit 0600", os.path.exists(kp) and stat.S_IMODE(os.stat(kp).st_mode) == 0o600)
+missing = [k for k in ("wifi_title", "wifi_pw", "wifi_ok", "wifi_fail", "skip", "connect")
+           if k not in nxi18n.T or len(nxi18n.T[k]) != len(nxi18n.ORDER)]
+check("WLAN-Texte in allen sieben Sprachen", not missing, missing)
+
+# ---- Greeter verweist nur auf vorhandene Funktionen (core.Pin-Absturz)
+import re as _re  # noqa: E402
+import core as nxcore  # noqa: E402
+_src = open(os.path.join(GREETER, "noxis-greeter")).read()
+_bad = sorted({a for a in _re.findall(r"core\.(\w+)", _src) if not hasattr(nxcore, a)})
+check("Greeter nutzt nur vorhandene core-Funktionen", not _bad, _bad)
+_keys = set(_re.findall(r"i18n\.tr\([\w.]+,\s*[\"'](\w+)[\"']", _src))
+_bad = sorted(k for k in _keys if k not in nxi18n.T)
+check("Greeter nutzt nur vorhandene Texte", not _bad, _bad)
+
 shutil.rmtree(T, ignore_errors=True)
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

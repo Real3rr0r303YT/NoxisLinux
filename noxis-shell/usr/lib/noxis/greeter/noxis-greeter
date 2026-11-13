@@ -218,12 +218,23 @@ class Greeter(Gtk.ApplicationWindow):
                 info = g.setup_info(self.lang)
             finally:
                 g.close()
-        except (GreetdError, OSError):
+        except (GreetdError, OSError) as e:
+            print(f"noxis-greeter: setup info failed: {e}", file=sys.stderr, flush=True)
             return
+        print(f"noxis-greeter: setup info: needed={info.get('needed')} user_needed={info.get('user_needed')}",
+              file=sys.stderr, flush=True)
         if info.get("type") == "noxis_setup_info" and (info.get("needed") or info.get("user_needed")):
             GLib.idle_add(self.start_setup, info)
 
     def start_setup(self, info):
+        try:
+            self._start_setup(info)
+        except Exception:  # noqa: BLE001 -- sonst verschwindet der Fehler still im Idle-Callback
+            import traceback
+            traceback.print_exc()
+        return False
+
+    def _start_setup(self, info):
         self.setup_data = info
         if not info.get("needed"):
             # Sprache und Zeitzone standen schon beim Bauen fest -- dann bleibt
@@ -334,7 +345,7 @@ class Greeter(Gtk.ApplicationWindow):
     def show_pin_page(self, tz):
         self.sp_tz = tz
         self.sp_first = None
-        self.sp_buf = core.Pin()
+        self.sp_buf = core.PinState(max_len=32)
         old = self.stack.get_child_by_name("setpin")
         if old:
             self.stack.remove(old)
@@ -441,8 +452,191 @@ class Greeter(Gtk.ApplicationWindow):
             os.environ["TZ"] = f":/usr/share/zoneinfo/{tz}"
             time.tzset()
         self.apply_texts()
-        self.stack.set_visible_child_name("login")
+        self.show_wifi_page()
         return False
+
+    # ---- WLAN (optional) ------------------------------------------------
+    def show_wifi_page(self):
+        old = self.stack.get_child_by_name("wifi")
+        if old:
+            self.stack.remove(old)
+        self.stack.add_named(self.build_wifi_page(), "wifi")
+        self.stack.set_visible_child_name("wifi")
+        self.wifi_rescan()
+
+    def build_wifi_page(self):
+        lang = self.lang
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, css_classes=["noxis-root", "noxis-setup"])
+        title, _ = icon_label("network-wireless-symbolic", i18n.tr(lang, "wifi_title"), "noxis-title")
+        page.append(title)
+        page.append(Gtk.Label(label=i18n.tr(lang, "wifi_sub"), css_classes=["noxis-subtitle"], wrap=True))
+        self.wifi_msg = Gtk.Label(label=" ", css_classes=["noxis-msg"], wrap=True)
+        page.append(self.wifi_msg)
+        self.wifi_inner = Gtk.Stack(vexpand=True)
+        self.wifi_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.wifi_inner.add_named(Gtk.ScrolledWindow(vexpand=True, child=self.wifi_list), "list")
+
+        pw = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.wifi_pw_lbl = Gtk.Label(label=" ", css_classes=["noxis-subtitle"])
+        pw.append(self.wifi_pw_lbl)
+        self.wifi_entry = Gtk.PasswordEntry(show_peek_icon=True)
+        self.wifi_entry.connect("activate", lambda *_: self.wifi_do_connect())
+        pw.append(self.wifi_entry)
+        pw.append(self.build_osk(self.wifi_entry, self.wifi_do_connect))
+        self.wifi_inner.add_named(pw, "password")
+        page.append(self.wifi_inner)
+
+        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
+        self.wifi_back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"], visible=False)
+        self.wifi_back.connect("clicked", lambda *_: self.wifi_show_list())
+        rescan = Gtk.Button(label=i18n.tr(lang, "rescan"), css_classes=["noxis-chip"])
+        rescan.connect("clicked", lambda *_: self.wifi_rescan())
+        self.wifi_done = Gtk.Button(label=i18n.tr(lang, "skip"), css_classes=["noxis-chip", "noxis-primary"])
+        self.wifi_done.connect("clicked", lambda *_: self.stack.set_visible_child_name("login"))
+        for b in (self.wifi_back, rescan, self.wifi_done):
+            nav.append(b)
+        page.append(nav)
+        self.wifi_ssid = None
+        return page
+
+    def wifi_show_list(self):
+        self.wifi_inner.set_visible_child_name("list")
+        self.wifi_back.set_visible(False)
+
+    def wifi_rescan(self):
+        self.wifi_show_list()
+        self.wifi_msg.set_label(i18n.tr(self.lang, "wifi_scan"))
+
+        def work():
+            try:
+                g = Greetd()
+                try:
+                    nets, err = g.wifi_list(), None
+                finally:
+                    g.close()
+            except (GreetdError, OSError) as e:
+                nets, err = [], str(e)
+            GLib.idle_add(self.wifi_fill, nets, err)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def wifi_fill(self, nets, err):
+        child = self.wifi_list.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.wifi_list.remove(child)
+            child = nxt
+        if not nets:
+            self.wifi_msg.set_label(i18n.tr(self.lang, "wifi_none") + (f" ({err})" if err else ""))
+            return False
+        self.wifi_msg.set_label(" ")
+        for n in nets[:30]:
+            bars = 4 if n["signal"] >= 75 else 3 if n["signal"] >= 50 else 2 if n["signal"] >= 25 else 1
+            icon = ("network-wireless-signal-" + ["weak", "ok", "good", "excellent"][bars - 1]
+                    + ("-symbolic" if not n["secure"] else "-secure-symbolic"))
+            text = n["ssid"] + ("  ✓" if n.get("active") else "")
+            b = Gtk.Button(css_classes=["noxis-list-btn"])
+            row, _ = icon_label(icon, text)
+            b.set_child(row)
+            b.connect("clicked", lambda _b, net=n: self.wifi_pick(net))
+            self.wifi_list.append(b)
+        return False
+
+    def wifi_pick(self, net):
+        self.wifi_ssid = net["ssid"]
+        if not net["secure"]:
+            self.wifi_entry.set_text("")
+            self.wifi_do_connect()
+            return
+        self.wifi_pw_lbl.set_label(i18n.tr(self.lang, "wifi_pw", ssid=net["ssid"]))
+        self.wifi_entry.set_text("")
+        self.wifi_inner.set_visible_child_name("password")
+        self.wifi_back.set_visible(True)
+        self.wifi_msg.set_label(" ")
+
+    def wifi_do_connect(self):
+        ssid, psk = self.wifi_ssid, self.wifi_entry.get_text()
+        if not ssid:
+            return
+        self.wifi_msg.set_label(i18n.tr(self.lang, "wifi_conn"))
+
+        def work():
+            try:
+                g = Greetd()
+                try:
+                    ok, detail = g.wifi_connect(ssid, psk)
+                finally:
+                    g.close()
+            except (GreetdError, OSError) as e:
+                ok, detail = False, str(e)
+            GLib.idle_add(self.wifi_result, ssid, ok, detail)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def wifi_result(self, ssid, ok, detail):
+        if ok:
+            self.wifi_entry.set_text("")
+            self.wifi_msg.set_label(i18n.tr(self.lang, "wifi_ok", ssid=ssid))
+            self.wifi_done.set_label(i18n.tr(self.lang, "next"))
+            self.wifi_show_list()
+        else:
+            self.wifi_msg.set_label(f"{i18n.tr(self.lang, 'wifi_fail')}: {detail}")
+        return False
+
+    # Bildschirmtastatur: im Greeter (cage) laeuft kein squeekboard.
+    def build_osk(self, entry, on_enter):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["noxis-osk"])
+        st = {"shift": False, "sym": False}
+        top = "qwertzuiop" if self.lang == "de" else "qwertyuiop"
+        bottom = "yxcvbnm" if self.lang == "de" else "zxcvbnm"
+        letters = [top, "asdfghjkl", bottom]
+        symbols = ["1234567890", "-_.,@#!?&\"", "/:;()$%*+="]
+
+        def put(t):
+            entry.set_text(entry.get_text() + t)
+            entry.set_position(-1)
+
+        def back():
+            entry.set_text(entry.get_text()[:-1])
+            entry.set_position(-1)
+
+        def redraw():
+            child = box.get_first_child()
+            while child:
+                nxt = child.get_next_sibling()
+                box.remove(child)
+                child = nxt
+            rows = symbols if st["sym"] else letters
+            for i, keys in enumerate(rows):
+                r = Gtk.Box(spacing=4, halign=Gtk.Align.CENTER, homogeneous=True)
+                if i == 2 and not st["sym"]:
+                    sh = Gtk.Button(label="⇧", css_classes=["noxis-osk-key"] + (["noxis-primary"] if st["shift"] else []))
+                    sh.connect("clicked", lambda *_: (st.__setitem__("shift", not st["shift"]), redraw()))
+                    r.append(sh)
+                for k in keys:
+                    k = k.upper() if st["shift"] and not st["sym"] else k
+                    b = Gtk.Button(label=k, css_classes=["noxis-osk-key"])
+                    b.connect("clicked", lambda _b, c=k: put(c))
+                    r.append(b)
+                if i == 2:
+                    bs = Gtk.Button(icon_name="edit-clear-symbolic", css_classes=["noxis-osk-key"])
+                    bs.connect("clicked", lambda *_: back())
+                    r.append(bs)
+                box.append(r)
+            last = Gtk.Box(spacing=4, halign=Gtk.Align.FILL)
+            tg = Gtk.Button(label="abc" if st["sym"] else "123", css_classes=["noxis-osk-key"])
+            tg.connect("clicked", lambda *_: (st.__setitem__("sym", not st["sym"]), redraw()))
+            last.append(tg)
+            sp = Gtk.Button(label=" ", hexpand=True, css_classes=["noxis-osk-key"])
+            sp.connect("clicked", lambda *_: put(" "))
+            last.append(sp)
+            ok = Gtk.Button(label=i18n.tr(self.lang, "connect"), css_classes=["noxis-osk-key", "noxis-primary"])
+            ok.connect("clicked", lambda *_: on_enter())
+            last.append(ok)
+            box.append(last)
+
+        redraw()
+        return box
 
     # ============================================================ Input
     def on_mode(self, btn, key):

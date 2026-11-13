@@ -187,6 +187,7 @@ shell)
       noxis-shell/usr/lib/noxis/dm/noxis-dm \
       noxis-shell/usr/lib/noxis/dm/pam.py \
       noxis-shell/usr/lib/noxis/dm/setup.py \
+      noxis-shell/usr/lib/noxis/dm/wifi.py \
       noxis-shell/usr/lib/noxis/greeter/core.py \
       noxis-shell/usr/lib/noxis/greeter/greetd_ipc.py \
       noxis-shell/usr/lib/noxis/greeter/i18n.py \

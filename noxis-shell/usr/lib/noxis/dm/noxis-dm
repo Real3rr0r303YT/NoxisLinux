@@ -19,6 +19,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import pam  # noqa: E402
 import setup  # noqa: E402
+import wifi  # noqa: E402
 
 CONF = os.environ.get("NOXIS_DM_CONF", "/etc/noxis/dm.conf")
 VT_ACTIVATE, VT_WAITACTIVE = 0x5606, 0x5607
@@ -92,6 +93,9 @@ class Authenticator:
         self.authed = False
         self.session = None          # (cmd, env) after start_session
         self.conn = None
+        # WLAN vom Anmeldebildschirm nur waehrend der Ersteinrichtung -- auch
+        # noch direkt nach dem PIN-Schritt, der die Markierung schon schreibt.
+        self.setup_window = False
 
     def reset(self):
         if self.pam:
@@ -119,7 +123,12 @@ class Authenticator:
             req = recv_msg(conn)
             if req is None:
                 return
-            send_msg(conn, self.dispatch(req))
+            try:
+                resp = self.dispatch(req)
+            except Exception as e:  # noqa: BLE001 -- der Greeter soll eine Antwort bekommen
+                log(f"request {req.get('type')!r} failed: {type(e).__name__}: {e}")
+                resp = err("error", f"internal error: {e}")
+            send_msg(conn, resp)
 
     def dispatch(self, req):
         t = req.get("type")
@@ -177,6 +186,7 @@ class Authenticator:
             lang = req.get("lang") if req.get("lang") in setup.LANGS else "en"
             root = self.conf.get("setup_root", "/")
             tz, source, zones = setup.suggest(lang, setup.detect_mcc(), root)
+            log(f"setup info: setup-done={setup.is_done(root)} user-done={setup.user_is_done(root)}")
             return {"type": "noxis_setup_info", "needed": not setup.is_done(root),
                     "user_needed": not setup.user_is_done(root), "suggested": tz,
                     "source": source, "zones": zones, "all_zones": setup.all_zones(root)}
@@ -194,6 +204,7 @@ class Authenticator:
             except (ValueError, RuntimeError, OSError) as e:
                 log(f"setup user: {e}")
                 return err("error", str(e))
+            self.setup_window = True
             log(f"setup: user {user} updated"
                 f"{' (pin)' if req.get('pin') else ''}{' (name)' if req.get('name') else ''}")
             return {"type": "success"}
@@ -206,6 +217,23 @@ class Authenticator:
             except (ValueError, OSError) as e:
                 return err("error", str(e))
             log(f"setup: lang={req.get('lang')} tz={req.get('timezone')}")
+            return {"type": "success"}
+        if t in ("noxis_wifi_list", "noxis_wifi_connect"):
+            root = self.conf.get("setup_root", "/")
+            if setup.user_is_done(root) and not self.setup_window:
+                return err("error", "only during first-boot setup")
+            if t == "noxis_wifi_list":
+                try:
+                    return {"type": "noxis_wifi_list", "networks": wifi.scan()}
+                except RuntimeError as e:
+                    log(f"wifi scan: {e}")
+                    return err("error", str(e))
+            try:
+                wifi.connect(req.get("ssid"), req.get("psk"), root)
+            except (ValueError, RuntimeError, OSError) as e:
+                log(f"wifi connect: {e}")
+                return err("error", str(e))
+            log("setup: WLAN connected")
             return {"type": "success"}
         return err("error", "Unknown request")
 

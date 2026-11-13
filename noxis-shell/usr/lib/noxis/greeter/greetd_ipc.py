@@ -97,3 +97,13 @@ class Greetd:
     def setup(self, lang, timezone):
         r = self.request({"type": "noxis_setup", "lang": lang, "timezone": timezone})
         return r.get("type") == "success", r.get("description", "")
+
+    def wifi_list(self):
+        r = self.request({"type": "noxis_wifi_list"})
+        if r.get("type") != "noxis_wifi_list":
+            raise GreetdError(r.get("description") or "WLAN unavailable")
+        return r.get("networks") or []
+
+    def wifi_connect(self, ssid, psk):
+        r = self.request({"type": "noxis_wifi_connect", "ssid": ssid, "psk": psk or ""})
+        return r.get("type") == "success", r.get("description", "")

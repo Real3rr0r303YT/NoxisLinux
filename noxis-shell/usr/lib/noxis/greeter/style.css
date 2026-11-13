@@ -54,3 +54,13 @@ window { background: #07070B; color: #F2F3F7; font-family: "Inter", "Noto Sans",
 .noxis-tz-list { background: transparent; }
 .noxis-tz-row  { padding: 10px 12px; font-size: 15px; }
 searchentry { border-radius: 12px; min-height: 40px; }
+
+/* Bildschirmtastatur fuer das WLAN-Passwort */
+.noxis-osk { margin-top: 6px; }
+.noxis-osk-key {
+  min-width: 26px; min-height: 42px; padding: 0 4px;
+  border-radius: 10px; font-size: 17px;
+  background: alpha(#FFFFFF, 0.10); color: #F2F3F7;
+  border: 1px solid alpha(#FFFFFF, 0.14);
+}
+.noxis-osk-key:active { background: alpha(#7C8CFF, 0.35); }
