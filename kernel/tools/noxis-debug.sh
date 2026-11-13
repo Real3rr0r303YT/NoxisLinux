@@ -4,7 +4,8 @@
 # https://github.com/Real3rr0r303YT/NoxisLinux
 # Noxis Linux – ein Befehl fuer den kompletten Debug-Durchlauf.
 #
-#   ./noxis-debug.sh
+#   ./noxis-debug.sh            Durchlauf mit dem vorhandenen Kernel-Image
+#   ./noxis-debug.sh --build    vorher Initramfs + boot.img neu bauen
 #
 # Ablauf (du drueckst nur die Tasten, wenn es dich auffordert):
 #   1. Recovery holen (Stock-Bootkette), Rootfs pruefen:
@@ -38,8 +39,25 @@ wait_recovery() {
 }
 rsh() { adb shell "$@" 2>/dev/null; }
 
-hdr "1/5 Recovery"
 git -C "$REPO" pull --ff-only >/dev/null 2>&1 && c "Repo aktuell" || c "git pull uebersprungen"
+
+if [ "${1:-}" = "--build" ]; then
+  hdr "0/5 Initramfs + boot.img bauen"
+  sudo -v
+  sudo docker run --rm \
+    -v "$REPO:/noxis:ro" -v "$HOME/Desktop/noxis-linux:/out" -v "noxis-kernel:/kwork" \
+    -e NOXIS_KWORK=/kwork -e NOXIS_KOUT=/out \
+    -e NOXIS_CMDLINE="console=tty0 loglevel=7 selinux=0 panic=0 noxis.root=userdata noxis.debug=0" \
+    debian:trixie bash -c '
+      set -e
+      apt-get update -q >/dev/null
+      apt-get install -y -q --no-install-recommends make cpio kmod mkbootimg dpkg-dev ca-certificates lz4 python3 >/dev/null 2>&1
+      /noxis/kernel/build-noxis-kernel.sh initramfs
+      /noxis/kernel/build-noxis-kernel.sh bootimg' 2>&1 | grep -E "noxis-kernel|warn|ERROR" || { c "Build fehlgeschlagen"; exit 1; }
+fi
+sudo -v   # Passwort jetzt abfragen, nicht spaeter im Hintergrund
+
+hdr "1/5 Recovery"
 if ! adb devices 2>/dev/null | grep -q recovery; then
   "$T/noxis-try.sh" --restore || exit 1
 fi

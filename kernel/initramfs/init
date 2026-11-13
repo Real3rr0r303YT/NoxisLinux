@@ -29,8 +29,26 @@ cmdline_get() {  # $1 = key
 }
 
 bootconfig_get() {  # $1 = key from /proc/bootconfig
+  # Tolerant gegenueber Leerzeichen und Anfuehrungszeichen: 'key = "v"',
+  # 'key="v"' und 'key = v' kommen je nach Bootloader vor.
   [ -r "$BOOTCONFIG_FILE" ] || return 1
-  sed -n "s/^$1 = \"\(.*\)\"$/\1/p" "$BOOTCONFIG_FILE" | head -n1
+  grep -m1 "^$1[[:space:]]*=" "$BOOTCONFIG_FILE" \
+    | sed 's/^[^=]*=[[:space:]]*//; s/^"//; s/"[[:space:]]*$//; s/[[:space:]]*$//'
+}
+
+detect_slot() {
+  s=$(bootconfig_get androidboot.slot_suffix)
+  [ -n "$s" ] || s=$(cmdline_get androidboot.slot_suffix)
+  [ -n "$s" ] || { s=$(bootconfig_get androidboot.slot); [ -n "$s" ] && s="_$s"; }
+  [ -n "$s" ] || { s=$(cmdline_get androidboot.slot); [ -n "$s" ] && s="_$s"; }
+  case "$s" in _a|_b) echo "$s"; return 0 ;; a|b) echo "_$s"; return 0 ;; esac
+  # Kein Hinweis gefunden: wenn es A/B-Firmware gibt, Slot a annehmen und das
+  # laut sagen. Ohne Suffix findet sich modem/dsp auf diesem Geraet nie, und
+  # dann startet weder ADSP (Akku), noch Modem, noch WLAN.
+  if find_part modem_a >/dev/null; then
+    log "slot suffix unknown (bootconfig/cmdline) - assuming _a"
+    echo "_a"
+  fi
 }
 
 find_part() {  # $1 = PARTNAME → /dev/sdXN
@@ -157,8 +175,7 @@ rescue() {
 early_mounts
 load_modules
 
-SLOT=$(bootconfig_get androidboot.slot_suffix)
-[ -n "$SLOT" ] || SLOT=$(cmdline_get androidboot.slot_suffix)
+SLOT=$(detect_slot)
 ROOT_PART=$(cmdline_get noxis.root) || ROOT_PART=userdata
 
 if [ "$(cmdline_get noxis.debug)" = 1 ]; then
@@ -176,10 +193,16 @@ mount -t ext4 -o rw,noatime,nodev "$ROOT_DEV" /sysroot || rescue "mounting $ROOT
 # firmware: modem (vfat) and dsp (ext4) of the active slot, read-only
 mkdir -p /sysroot/vendor/firmware_mnt /sysroot/vendor/dsp
 if p=$(find_part "modem$SLOT"); then
-  mount -t vfat -o ro,nosuid,nodev,noexec,shortname=lower "$p" /sysroot/vendor/firmware_mnt || log "modem$SLOT not mounted"
+  mount -t vfat -o ro,nosuid,nodev,noexec,shortname=lower "$p" /sysroot/vendor/firmware_mnt \
+    && log "firmware: modem$SLOT ($p) mounted" || log "modem$SLOT not mounted"
+else
+  log "firmware: partition modem$SLOT not found - ADSP, modem, WLAN and battery will not start"
 fi
 if p=$(find_part "dsp$SLOT"); then
-  mount -t ext4 -o ro,nosuid,nodev,noexec "$p" /sysroot/vendor/dsp || log "dsp$SLOT not mounted"
+  mount -t ext4 -o ro,nosuid,nodev,noexec "$p" /sysroot/vendor/dsp \
+    && log "firmware: dsp$SLOT ($p) mounted" || log "dsp$SLOT not mounted"
+else
+  log "firmware: partition dsp$SLOT not found"
 fi
 
 for m in /dev /proc /sys /run; do mount --move "$m" "/sysroot$m" 2>/dev/null || mount -o bind "$m" "/sysroot$m"; done
