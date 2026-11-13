@@ -106,6 +106,11 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   echo "--- /lib/firmware Links ---"; ls /lib/firmware | wc -l; ls -la /lib/firmware | head -8
   echo "--- firmware_class.path ---"; cat /sys/module/firmware_class/parameters/path 2>&1
   echo "--- remoteproc ---"
+  for r in /sys/class/remoteproc/remoteproc*; do echo "  $(cat $r/name 2>/dev/null): firmware=$(cat $r/firmware 2>/dev/null) modalias=$(cat $r/device/modalias 2>/dev/null)"; done
+  echo "--- pd-mapper .jsn ---"
+  ls -la /lib/firmware/ 2>/dev/null | grep -i jsn
+  ls /vendor/firmware_mnt/image /vendor/firmware /vendor/dsp 2>/dev/null | grep -i jsn
+  find /vendor /lib/firmware -maxdepth 4 -iname "*.jsn*" 2>/dev/null | head -20
   for r in /sys/class/remoteproc/remoteproc*; do echo "  $(cat $r/name 2>/dev/null): $(cat $r/state 2>/dev/null)"; done
   echo "--- Hardware-Dienste ---"
   systemctl --no-pager -n 15 status noxis-install-debs noxis-firmware-links noxis-radios rmtfs pd-mapper tqftpserv 2>&1 | head -90; journalctl -b --no-pager -u rmtfs -u pd-mapper -u noxis-install-debs -u noxis-radios 2>&1 | tail -40
