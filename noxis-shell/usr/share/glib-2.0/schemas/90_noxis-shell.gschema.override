@@ -10,3 +10,6 @@ picture-uri='file:///usr/share/backgrounds/noxis/noxis-portrait.png'
 [org.gnome.desktop.interface]
 color-scheme='prefer-dark'
 font-name='Inter 11'
+
+[org.gnome.desktop.a11y.applications]
+screen-keyboard-enabled=true

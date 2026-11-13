@@ -68,6 +68,8 @@ def connected_outputs(drm=None):
         except OSError:
             continue
         name = os.path.basename(os.path.dirname(st)).split("-", 1)[1]
+        if name.startswith(("Virtual", "Writeback", "WB")):
+            continue   # Qualcomm-Writeback, kein Bildschirm
         out.append((name, name.startswith(INTERNAL_PREFIXES)))
     return out
 

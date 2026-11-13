@@ -168,6 +168,8 @@ check("DP connected → desktop", core.default_mode(r) == "desktop")
 r = drm({"card0-DSI-1": "connected", "card1-DVI-I-1": "connected"})
 check("DisplayLink (evdi, DVI-I) → Desktop", core.default_mode(r) == "desktop")
 check("outputs with internal/external flag", core.connected_outputs(r) == [("DSI-1", True), ("DVI-I-1", False)])
+r = drm({"card0-DSI-1": "connected", "card0-Virtual-1": "connected", "card0-DP-1": "disconnected"})
+check("Qualcomm-Writeback Virtual-1 ist kein Monitor → mobil", core.default_mode(r) == "mobile")
 
 print("== Desktop mode (noxis-dock)")
 conf = dock.load_conf([os.path.join(PKG, "etc/noxis/dock.conf")])
@@ -194,6 +196,9 @@ check("external above with scale 2", "--scale" in args and args[args.index("--sc
 docked, args = dock.plan([dsi, hdmi], dict(conf, internal="off"))
 check("phone display off in desktop mode", args == ["--output", "HDMI-A-1", "--on", "--scale", "1", "--pos", "0,0",
                                                      "--output", "DSI-1", "--off"], args)
+virt = {"name": "Virtual-1", "enabled": True, "scale": 1.0, "transform": "normal", "modes": []}
+docked, args = dock.plan([dsi, virt], conf)
+check("Virtual-1 schaltet den Desktop-Modus nicht ein", docked is False and args == [], args)
 docked, args = dock.plan([hdmi], conf)
 check("external only (no internal display)", args == ["--output", "HDMI-A-1", "--on", "--scale", "1", "--pos", "0,0"], args)
 

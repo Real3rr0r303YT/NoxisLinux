@@ -37,8 +37,18 @@ def outputs():
     return json.loads(r.stdout)
 
 
+# Qualcomm meldet einen Writeback-Ausgang "Virtual-1" (kein Bildschirm).
+# Als externer Monitor gezaehlt schaltete er den Desktop-Modus ein -- und
+# damit die Bildschirmtastatur aus.
+PSEUDO = ("Virtual", "Writeback", "WB")
+
+
 def is_internal(o):
     return o["name"].startswith(INTERNAL)
+
+
+def is_pseudo(o):
+    return o["name"].startswith(PSEUDO)
 
 
 def current_mode(o):
@@ -62,6 +72,7 @@ def logical_size(o):
 
 def plan(outs, conf, desktop_forced=False):
     """Returns (docked, [wlr-randr arguments]) for the target state."""
+    outs = [o for o in outs if not is_pseudo(o)]
     internal = [o for o in outs if is_internal(o)]
     external = [o for o in outs if not is_internal(o)]
     args = []
@@ -134,6 +145,10 @@ class Dock:
             if self.saved_osk is not None:
                 gset(*OSK, self.saved_osk)
                 self.saved_osk = None
+            else:
+                # Handy ohne Monitor: Bildschirmtastatur immer an. Ein frueherer
+                # Fehlalarm (Virtual-1) hat "false" in dconf hinterlassen.
+                gset(*OSK, "true")
             log("mobile mode")
 
 
