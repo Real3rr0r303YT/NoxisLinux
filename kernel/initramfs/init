@@ -181,10 +181,15 @@ rescue_mode() {
   done
 }
 
-want_rescue() {  # Ausloeser: Kernel-Parameter oder Recovery-Start aus dem Bootloader
+want_rescue() {  # Ausloeser: Kernel-Parameter, Marker im Rootfs, oder mode=recovery
   [ "$(cmdline_get noxis.rescue)" = 1 ] && return 0
   [ "$(bootconfig_get androidboot.mode)" = recovery ] && return 0
-  [ "$(bootconfig_get androidboot.force_normal_boot)" = 0 ] && return 0
+  # force_normal_boot=0 war hier auch ein Ausloeser. Auf diesem Geraet ist
+  # "fastboot reboot recovery" aber der einzige Weg, auf dem Noxis ueberhaupt
+  # hochkommt – ein normales "fastboot reboot" bleibt schwarz. Damit ist
+  # "recovery" der normale Startweg und darf keinen Rescue bedeuten, sonst
+  # waere Noxis selbst nicht mehr erreichbar. Rescue kommt ueber
+  # noxis.rescue=1 oder den Marker /.noxis-rescue (Knopf in der Oberfläche).
   return 1
 }
 

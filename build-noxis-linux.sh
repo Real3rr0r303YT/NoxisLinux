@@ -544,7 +544,11 @@ cmd_flash() {
   fastboot flash init_boot "$out/init_boot.img" || die "flash init_boot"
   fastboot set_active a >/dev/null 2>&1
   c "starten"
-  fastboot reboot >/dev/null 2>&1
+  # Siehe kernel/tools/noxis-try.sh: nach einem einfachen "fastboot reboot"
+  # kommt Noxis auf diesem Geraet nicht hoch, nach "reboot recovery" schon.
+  # /proc/bootconfig ist leer, androidboot.force_normal_boot also auch – damit
+  # ist "recovery" hier der normale Startweg und kein Rescue.
+  fastboot reboot recovery >/dev/null 2>&1
   c "Fertig. Erster Start dauert ein bis drei Minuten (resize2fs + systemd)."
   c "Erster Start: Einrichtung mit Sprache, Zeitzone, eigener PIN und WLAN."
 }

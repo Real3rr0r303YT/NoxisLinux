@@ -151,7 +151,11 @@ fastboot flash boot      boot.noxis.img      >/dev/null 2>&1 || die "flash boot 
 fastboot flash init_boot init_boot.noxis.img >/dev/null 2>&1 || die "flash init_boot fehlgeschlagen"
 fastboot set_active a >/dev/null 2>&1
 c "starten"
-fastboot reboot >/dev/null 2>&1
+# Auf diesem Geraet kommt Noxis nach einem einfachen "fastboot reboot" nicht
+# hoch, nach "fastboot reboot recovery" schon. Der Grund steht im Bootlog:
+# /proc/bootconfig liefert nichts, androidboot.force_normal_boot ist leer.
+# "recovery" ist hier also der normale Startweg und bedeutet keinen Rescue.
+fastboot reboot recovery >/dev/null 2>&1
 ok "gestartet – schau aufs Display. Ich warte 150 Sekunden auf ein Netzwerk-Interface."
 
 iface=""
