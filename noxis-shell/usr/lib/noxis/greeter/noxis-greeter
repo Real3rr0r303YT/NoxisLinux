@@ -492,12 +492,23 @@ class Greeter(Gtk.ApplicationWindow):
         rescan = Gtk.Button(label=i18n.tr(lang, "rescan"), css_classes=["noxis-chip"])
         rescan.connect("clicked", lambda *_: self.wifi_rescan())
         self.wifi_done = Gtk.Button(label=i18n.tr(lang, "skip"), css_classes=["noxis-chip", "noxis-primary"])
-        self.wifi_done.connect("clicked", lambda *_: self.stack.set_visible_child_name("login"))
+        self.wifi_done.connect("clicked", lambda *_: self.wifi_leave())
         for b in (self.wifi_back, rescan, self.wifi_done):
             nav.append(b)
         page.append(nav)
         self.wifi_ssid = None
         return page
+
+    def wifi_leave(self):
+        print("noxis-greeter: wifi page left", file=sys.stderr, flush=True)
+        try:
+            self.stack.set_visible_child_name("login")
+            old = self.stack.get_child_by_name("wifi")
+            if old:
+                GLib.idle_add(lambda: (self.stack.remove(old), False)[1])
+        except Exception:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
 
     def wifi_show_list(self):
         self.wifi_inner.set_visible_child_name("list")
