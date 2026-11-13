@@ -143,6 +143,31 @@ abgeschaltet. Drei Dinge daran sind leicht falsch zu machen:
   nicht, der Verweis ist dort tot. Der Firmware-Lader durchsucht `updates/`
   ohnehin vor `/lib/firmware`.
 
+### WLAN: die Funkregulierungs-Datenbank fehlt
+
+Im Kernel-Log steht:
+
+```
+platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+cfg80211: failed to load regulatory.db
+```
+
+`regulatory.db` ist die Datenbank mit den Funkregeln aller Laender - welche
+Kanaele erlaubt sind und mit welcher Sendeleistung. Sie gehoert zum Paket
+`wireless-regdb` und war in der Paketliste nie enthalten. Ohne sie kann
+`cfg80211` keine Laenderdomaene anwenden.
+
+Die Datei ist nicht geraetespezifisch. Sie liegt auf jedem Linux-Rechner mit
+`wireless-regdb` unter `/lib/firmware/regulatory.db`, deshalb nehmen wir sie
+vom Rechner statt sie herunterzuladen:
+
+```bash
+./kernel/tools/noxis-diag.sh regdb
+```
+
+Fuer neue Abbilder steht `wireless-regdb` jetzt in `PKG_BASE`, dann wird die
+Datei gleich mitinstalliert.
+
 ### WLAN: SAE (WPA3) laeuft in eine Zeitueberschreitung
 
 Die Anmeldung scheitert mit:
