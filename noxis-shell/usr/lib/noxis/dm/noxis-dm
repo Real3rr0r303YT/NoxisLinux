@@ -358,10 +358,16 @@ class DM:
             if conf["vt"]:
                 gp.set_tty(f"tty{conf['vt']}")
             gp.acct_mgmt()
-            env = open_pam_session(gp, gpw, conf, "greeter", {"GREETD_SOCK": sock_path})
+            # Auch die Greeter-Sitzung im Kind oeffnen. Oeffnet der Display-
+            # Manager sie selbst, wird er Anfuehrer von Sitzung c1 und logind
+            # verschiebt ihn in deren Scope -- dauerhaft. Jeder spaetere Kind-
+            # prozess steckt dann ebenfalls in c1, pam_systemd bekommt fuer die
+            # Benutzersitzung "schon in einer Sitzung" zurueck und legt keine an:
+            # kein systemd --user, keine Tastatur, gnome-session bricht ab.
             activate_vt(conf["vt"])
             argv = ["/bin/sh", "-c", f"exec {conf['greeter_cmd']}"]
-            pid = spawn(gpw, argv, env, conf["vt"])
+            pid = spawn(gpw, argv, None, conf["vt"],
+                        pre=lambda: open_pam_session(gp, gpw, conf, "greeter", {"GREETD_SOCK": sock_path}))
             self.children.add(pid)
 
             def poll():
@@ -387,7 +393,11 @@ class DM:
             self.children.discard(pid)
             log(f"greeter exited (status {status})")
         finally:
-            gp.close_session()
+            # Die Sitzung gehoert dem Kind; logind baut sie ab, wenn es endet.
+            try:
+                gp.setcred(False)
+            except pam.PamError:
+                pass
             gp.end()
             srv.close()
             try:

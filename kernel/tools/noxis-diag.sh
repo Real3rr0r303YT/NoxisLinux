@@ -98,6 +98,14 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   echo "--- logind-Sitzungen ---"; loginctl list-sessions --no-pager 2>&1; loginctl show-session --no-pager 2>&1
   echo "--- systemd --user ---"; systemctl --user --no-pager status 2>&1 | head -5
   echo "--- Netz ---"; nmcli -t device 2>&1; rfkill list 2>&1
+  echo "--- Firmware-Mounts ---"; grep -E "vendor|firmware" /proc/mounts
+  echo "--- firmware_mnt/image (Auszug) ---"; ls /vendor/firmware_mnt/image 2>&1 | head -25
+  echo "--- /lib/firmware Links ---"; ls /lib/firmware | wc -l; ls -la /lib/firmware | head -8
+  echo "--- firmware_class.path ---"; cat /sys/module/firmware_class/parameters/path 2>&1
+  echo "--- remoteproc ---"
+  for r in /sys/class/remoteproc/remoteproc*; do echo "  $(cat $r/name 2>/dev/null): $(cat $r/state 2>/dev/null)"; done
+  echo "--- Hardware-Dienste ---"
+  systemctl --no-pager -n 15 status noxis-firmware-links noxis-radios rmtfs pd-mapper tqftpserv 2>&1 | head -70
 } > "$d/system.log" 2>&1
 { echo "--- KGSL ---"; ls -la /dev/kgsl* /dev/dma_heap 2>&1
   if [ -d /opt/mesa-kgsl ]; then
@@ -189,14 +197,18 @@ shell)
       noxis-shell/etc/noxis/greeter.conf \
       noxis-shell/etc/noxis/dock.conf \
       noxis-shell/etc/pam.d/noxis \
-      noxis-shell/etc/pam.d/noxis-greeter
+      noxis-shell/etc/pam.d/noxis-greeter \
+      noxis-hw/etc/systemd/logind.conf.d/90-noxis.conf \
+      noxis-hw/usr/lib/udev/rules.d/70-noxis-gpu.rules \
+      noxis-hw/usr/lib/noxis/hw/noxis-firmware-links \
+      noxis-hw/usr/lib/noxis/hw/noxis-radios
   do
     src="$REPO/$rel"
     [ -f "$src" ] || continue
-    dst="$M/${rel#noxis-shell/}"
-    adb shell "[ -e $dst ] && echo yes" 2>/dev/null | grep -q yes || { c "nicht im System, uebersprungen: ${rel#noxis-shell/}"; continue; }
+    dst="$M/${rel#*/}"
+    adb shell "mkdir -p \$(dirname $dst)" >/dev/null 2>&1
     adb push "$src" "$dst" >/dev/null 2>&1 && { n=$((n + 1)); } || die "push $rel fehlgeschlagen"
-    case "$rel" in *.py|*.css|*.conf) ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
+    case "$rel" in *.py|*.css|*.conf|*.rules|*/pam.d/*) adb shell "chmod 644 $dst" >/dev/null 2>&1 ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
   done
   adb shell "sync" >/dev/null 2>&1
   ok "$n Dateien aktualisiert"
