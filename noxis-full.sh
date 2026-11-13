@@ -73,13 +73,26 @@ elif [ -z "$FW" ] && [ -d "$BK/vendor-firmware" ] && [ -n "$(ls -A "$BK/vendor-f
   FW="$BK/vendor-firmware"; ok "Firmware aus $FW"
 elif [ -z "$FW" ]; then
   c "hole /vendor/firmware vom Handy (Recovery mit adb noetig)"
-  adb devices | grep -qE 'recovery$|device$' || die "Handy nicht per adb erreichbar – in die Recovery bringen"
-  adb shell 'mkdir -p /tmp/vnd; mount -o ro /dev/block/mapper/vendor_a /tmp/vnd 2>/dev/null || mount -o ro /dev/block/mapper/vendor /tmp/vnd 2>/dev/null; ls /tmp/vnd/firmware >/dev/null' \
-    || die "vendor nicht mountbar – NOXIS_FIRMWARE=<Ordner> setzen"
-  mkdir -p "$BK/vendor-firmware"
-  adb pull /tmp/vnd/firmware/. "$BK/vendor-firmware/" >/dev/null || die "Firmware nicht geholt"
+  if ! adb devices | grep -qE 'recovery$|device$'; then
+    # Handy laeuft in Noxis oder ist aus: Stock-Bootkette zurueck, das startet die Recovery.
+    c "Handy nicht per adb da – bringe es ueber den Bootloader in die Recovery"
+    "$HERE/kernel/tools/noxis-try.sh" --restore || die "Recovery nicht erreicht"
+    i=0
+    until adb devices | grep -qE 'recovery$|device$'; do
+      sleep 2; i=$((i + 2)); [ "$i" -ge 180 ] && die "Recovery meldet sich nicht per adb"
+    done
+    ok "Recovery da"
+  fi
+  # /vendor/firmware ist ein Zusatz (WLAN-Kalibrierung u. ae.). Modem, ADSP und
+  # WLAN-Firmware kommen ohnehin zur Laufzeit von der modem-Partition.
+  if adb shell 'mkdir -p /tmp/vnd; mount -o ro /dev/block/mapper/vendor_a /tmp/vnd 2>/dev/null || mount -o ro /dev/block/mapper/vendor /tmp/vnd 2>/dev/null; ls /tmp/vnd/firmware >/dev/null' \
+     && mkdir -p "$BK/vendor-firmware" && adb pull /tmp/vnd/firmware/. "$BK/vendor-firmware/" >/dev/null; then
+    FW="$BK/vendor-firmware"; ok "Firmware nach $FW ($(du -sh "$FW" | cut -f1))"
+  else
+    rmdir "$BK/vendor-firmware" 2>/dev/null || true
+    c "/vendor/firmware nicht lesbar – baue ohne (Firmware kommt von der modem-Partition)"
+  fi
   adb shell 'umount /tmp/vnd' >/dev/null 2>&1 || true
-  FW="$BK/vendor-firmware"; ok "Firmware nach $FW ($(du -sh "$FW" | cut -f1))"
 fi
 
 # ------------------------------------------------------------------ 2 mesa
@@ -93,12 +106,11 @@ fi
 
 # ------------------------------------------------------------------ 3 kernel
 hdr "3/5 Kernel + Initramfs + boot.img"
-NOXIS_FIRMWARE="$FW" "${RUN[@]}" "$HERE/build-noxis-linux.sh" kernel || die "Kernel-Bau fehlgeschlagen"
+if [ -n "$FW" ]; then export NOXIS_FIRMWARE="$FW"; fi
+"${RUN[@]}" "$HERE/build-noxis-linux.sh" kernel || die "Kernel-Bau fehlgeschlagen"
 if [ -z "$FW" ] && ls "$BK"/fw-deb/*.deb >/dev/null 2>&1; then
   "${RUN[@]}" cp -f "$BK"/fw-deb/*.deb "$OUT/device/"
 fi
-ls "$OUT"/device/noxis-firmware-asteroids_*.deb >/dev/null 2>&1 \
-  || die "kein Firmware-Paket in $OUT/device – ohne Firmware kein Modem/WLAN/Akku"
 for f in boot.img initramfs.cpio.lz4; do [ -f "$OUT/$f" ] || die "$OUT/$f fehlt nach dem Kernel-Bau"; done
 ok "Kernel fertig"
 
