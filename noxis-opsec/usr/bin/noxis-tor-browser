@@ -11,7 +11,21 @@ SRC=${NOXIS_TOR_SRC:-/opt/tor-browser}
 DST="${XDG_DATA_HOME:-$HOME/.local/share}/noxis/tor-browser"
 [ -x "$SRC/Browser/start-tor-browser" ] || { echo "Tor Browser fehlt in $SRC" >&2; exit 1; }
 ver() { cat "$1/Browser/tbb_version.json" 2>/dev/null || ls -l --time-style=+%s "$1/Browser/firefox" 2>/dev/null; }
+# Die Kopie ist einige hundert MB. Beim ersten Antippen passiert darum eine
+# gute Minute lang sichtbar nichts, was wie ein kaputter Starter aussieht.
+# Darum eine Meldung auf den Bildschirm, und alles ins Journal.
+say() {
+  echo "noxis-tor-browser: $*" >&2
+  command -v notify-send >/dev/null 2>&1 && notify-send -a "Tor Browser" "Tor Browser" "$*" || true
+}
 if [ ! -x "$DST/Browser/start-tor-browser" ] || [ "$(ver "$SRC")" != "$(cat "$DST/.noxis-src" 2>/dev/null)" ]; then
+  need=$(du -sk "$SRC" 2>/dev/null | cut -f1)
+  free=$(df -Pk "$(dirname "$DST")" 2>/dev/null | awk 'NR==2{print $4}')
+  if [ -n "$need" ] && [ -n "$free" ] && [ "$free" -lt "$((need + 51200))" ]; then
+    say "Zu wenig Platz: $((need / 1024)) MB gebraucht, $((free / 1024)) MB frei."
+    exit 1
+  fi
+  say "Wird beim ersten Start eingerichtet ($((need / 1024)) MB). Das dauert etwa eine Minute."
   # Lesezeichen und Einstellungen behalten, Programm erneuern
   keep=""
   if [ -d "$DST/Browser/TorBrowser/Data" ]; then
@@ -21,7 +35,9 @@ if [ ! -x "$DST/Browser/start-tor-browser" ] || [ "$(ver "$SRC")" != "$(cat "$DS
   cp -a "$SRC" "$DST"
   if [ -n "$keep" ]; then rm -rf "$DST/Browser/TorBrowser/Data"; mkdir -p "$DST/Browser/TorBrowser"; mv "$keep/Data" "$DST/Browser/TorBrowser/"; rmdir "$keep"; fi
   ver "$SRC" > "$DST/.noxis-src"
+  say "Fertig eingerichtet, startet jetzt."
 fi
 # Ohne X11 (nur Wayland/Phosh) braucht der Browser Wayland ausdruecklich.
 [ -n "${WAYLAND_DISPLAY:-}" ] && export MOZ_ENABLE_WAYLAND=1
+echo "noxis-tor-browser: starte $DST/Browser/start-tor-browser" >&2
 exec "$DST/Browser/start-tor-browser" --detach "$@"

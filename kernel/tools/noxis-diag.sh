@@ -157,6 +157,19 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   done
   echo "--- noxis-dock ---"; journalctl -b --no-pager | grep -a "noxis-dock" | tail -15
   echo "--- Ausgaenge (wlr-randr) ---"; command -v wlr-randr >/dev/null && echo "  da" || echo "  fehlt"
+  echo "--- Tor Browser und Mullvad ---"
+  echo "  /opt/tor-browser: $(ls -ld /opt/tor-browser 2>&1 | head -1)"
+  echo "  start-tor-browser: $([ -x /opt/tor-browser/Browser/start-tor-browser ] && echo ausfuehrbar || echo FEHLT)"
+  echo "  Groesse: $(du -sh /opt/tor-browser 2>/dev/null | cut -f1)"
+  echo "  Platz auf /: $(df -h / 2>/dev/null | awk 'NR==2{print $4" frei von "$2}')"
+  for h in /home/*; do
+    [ -d "$h" ] || continue
+    echo "  Kopie in ${h##*/}: $(ls -ld "$h/.local/share/noxis/tor-browser" 2>&1 | head -1)"
+  done
+  echo "  mullvad-daemon: $(systemctl is-active mullvad-daemon 2>&1)"
+  echo "  mullvad-Programm: $(ls -l '/opt/Mullvad VPN/mullvad-vpn' 2>&1 | head -1)"
+  echo "  Journal (Tor/Mullvad):"
+  journalctl -b --no-pager | grep -aiE "tor-browser|mullvad|electron|ozone" | tail -25
   echo "--- Starter, die nicht aufgehen ---"
   for f in /usr/share/applications/noxis-rescue.desktop \
            /usr/share/applications/noxis-tor-browser.desktop \
