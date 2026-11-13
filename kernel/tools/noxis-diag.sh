@@ -23,6 +23,7 @@
 #                             des Systems schieben (Board-Daten fuer WLAN/BT)
 #   ./noxis-diag.sh usbnet    USB-Netz + SSH einrichten: danach gibt es mit
 #                             kernel/tools/noxis-shell.sh eine Shell vom PC
+#   ./noxis-diag.sh usbnet-off  denselben Dienst wieder abschalten
 #   ./noxis-diag.sh osk       DBus-Aktivierung fuer die Bildschirmtastatur
 #                             (sm.puri.OSK0) nachlegen
 #
@@ -530,6 +531,18 @@ osk)
   adb shell "chmod 644 $M/usr/share/dbus-1/services/sm.puri.OSK0.service" >/dev/null 2>&1
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
+  umount_root
+  ;;
+
+usbnet-off)
+  # Notausstieg: den Dienst abschalten, ohne das Rootfs neu zu bauen. Noetig,
+  # wenn noxis-usbnet beim Start Aerger macht - eine fruehere Fassung riss mit
+  # dem Neuanbinden des dwc3-Treibers den ganzen Kernel mit.
+  need_recovery; mount_root
+  adb shell "rm -f $M/etc/systemd/system/multi-user.target.wants/noxis-usbnet.service" >/dev/null 2>&1
+  adb shell "[ -e $M/etc/systemd/system/multi-user.target.wants/noxis-usbnet.service ] && echo da" 2>/dev/null \
+    | grep -q da && { umount_root; die "Dienst liess sich nicht abschalten"; }
+  ok "noxis-usbnet abgeschaltet – wirkt beim naechsten Start"
   umount_root
   ;;
 
