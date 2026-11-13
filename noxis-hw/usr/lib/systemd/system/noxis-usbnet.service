@@ -4,13 +4,18 @@
 # USB-Netz fuers Entwickeln: Shell vom PC aufs laufende Noxis.
 # Nicht von selbst an – siehe Hinweis in /usr/lib/noxis/hw/noxis-usbnet.
 Description=Noxis: USB-Netz und SSH ueber das Kabel
-After=network-pre.target nftables.service
+# Nach noxis-install-debs, weil openssh-server beim allerersten Start erst
+# dort installiert wird. Ohne das lief der Dienst, fand keinen sshd und gab
+# auf - das USB-Geraet war da, aber nichts nahm Verbindungen an.
+After=network-pre.target nftables.service noxis-install-debs.service
 Wants=network-pre.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/lib/noxis/hw/noxis-usbnet start
+# Scheitert der Start, soll das den Boot nicht aufhalten.
+SuccessExitStatus=0 1
 ExecStop=/usr/lib/noxis/hw/noxis-usbnet stop
 
 [Install]

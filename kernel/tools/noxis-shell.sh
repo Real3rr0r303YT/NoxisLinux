@@ -57,7 +57,14 @@ bring_up() {
     for n in $(ls /sys/class/net); do
       drv=$(basename "$(readlink -f "/sys/class/net/$n/device/driver" 2>/dev/null)" 2>/dev/null || true)
       case "$drv" in cdc_ncm|cdc_ether|rndis_host) ;; *) continue ;; esac
-      ip -4 addr show "$n" 2>/dev/null | grep -q 172.16.42.2 && continue
+      # Eine schon eingerichtete Schnittstelle NICHT ueberspringen, sondern
+      # pruefen. Vorher wurde sie uebergangen, und das Skript meldete
+      # "kein USB-Netz", ohne das Handy ueberhaupt gefragt zu haben.
+      if ip -4 addr show "$n" 2>/dev/null | grep -q 172.16.42.2; then
+        c "Schnittstelle $n ($drv) ist schon eingerichtet – pruefe das Handy"
+        reach && { ok "Handy antwortet auf $IP"; return 0; }
+        continue
+      fi
       c "Schnittstelle $n ($drv)"
       sudo ip link set "$n" up
       sudo ip addr add "$ME" dev "$n" 2>/dev/null || true

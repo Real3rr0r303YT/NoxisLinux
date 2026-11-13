@@ -105,12 +105,37 @@ start() {
     sleep 1
   fi
 
+  # Das Netzgeraet usb0 erscheint erst eine Weile nach dem Binden des UDC.
+  # Vorher lief "ip addr add" ins Leere, der PC sah zwar ein USB-Geraet, das
+  # Handy hatte aber keine Adresse und antwortete auf nichts.
+  i=0
+  while [ "$i" -lt 100 ]; do
+    [ -e /sys/class/net/usb0 ] && break
+    sleep 0.1; i=$((i + 1))
+  done
+  if [ ! -e /sys/class/net/usb0 ]; then
+    log "usb0 ist nicht erschienen – Gadget gebunden, aber kein Netzgeraet"
+    return 1
+  fi
   ip link set usb0 up 2>/dev/null
   ip addr add "$IP" dev usb0 2>/dev/null
+  ip -4 addr show usb0 | grep -q "${IP%/*}" \
+    && log "usb0: ${IP}" || { log "konnte ${IP} nicht auf usb0 legen"; return 1; }
   firewall_open
-  systemctl is-active ssh >/dev/null 2>&1 || systemctl start ssh 2>/dev/null \
-    || systemctl start sshd 2>/dev/null || log "sshd laeuft nicht (openssh-server fehlt?)"
-  log "bereit: ssh auf 172.16.42.1 (PC: kernel/tools/noxis-shell.sh)"
+  # openssh kann beim ersten Start noch installiert werden (noxis-install-debs).
+  # Darum mehrmals versuchen, statt einmal aufzugeben.
+  i=0
+  while [ "$i" -lt 30 ]; do
+    systemctl is-active ssh >/dev/null 2>&1 && break
+    systemctl start ssh >/dev/null 2>&1 || systemctl start sshd >/dev/null 2>&1
+    systemctl is-active ssh >/dev/null 2>&1 || systemctl is-active sshd >/dev/null 2>&1 && break
+    sleep 2; i=$((i + 1))
+  done
+  if systemctl is-active ssh >/dev/null 2>&1 || systemctl is-active sshd >/dev/null 2>&1; then
+    log "bereit: ssh auf ${IP%/*} (PC: kernel/tools/noxis-shell.sh)"
+  else
+    log "usb0 steht, aber sshd laeuft nicht (openssh-server installiert?)"
+  fi
 }
 
 stop() {
