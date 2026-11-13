@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Noxis Linux – Made by 3rr0r303YT on TikTok
+// https://github.com/Real3rr0r303YT/NoxisLinux
+//
+// Ausschalten und Neustarten ohne Passwort fuer die angemeldete Person am
+// Geraet. Ohne diese Regel verlangt polkit ein Passwort, sobald noch eine
+// zweite Sitzung existiert (die des Anmeldebildschirms) -- und am Handy
+// gibt es in dem Dialog oft keine Tastatur.
+polkit.addRule(function (action, subject) {
+    var ok = [
+        "org.freedesktop.login1.power-off",
+        "org.freedesktop.login1.power-off-multiple-sessions",
+        "org.freedesktop.login1.reboot",
+        "org.freedesktop.login1.reboot-multiple-sessions",
+        "org.freedesktop.login1.suspend",
+        "org.freedesktop.login1.suspend-multiple-sessions"
+    ];
+    if (ok.indexOf(action.id) >= 0 && subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

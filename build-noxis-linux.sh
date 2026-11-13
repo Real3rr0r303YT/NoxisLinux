@@ -299,6 +299,13 @@ for d in /usr/lib/firefox-esr/defaults/pref /usr/lib/firefox/defaults/pref; do
   [ -d "\$(dirname "\$d")" ] && mkdir -p "\$d" && install -m644 /tmp/noxis/noxis-arkenfox.js "\$d/noxis-arkenfox.js"
 done
 
+# Mesa mit Turnip/KGSL (Vulkan, experimentell) nach /opt/mesa-kgsl, falls gebaut
+if [ -f /tmp/noxis/mesa-kgsl.tar.gz ]; then
+  mkdir -p /opt && tar -xzf /tmp/noxis/mesa-kgsl.tar.gz -C /opt && echo "mesa-kgsl in /opt"
+fi
+# Schemas der Noxis-Pakete (Bildschirmtastatur an, Hintergrund, dunkles Design)
+glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+
 # user account
 id $NUSER >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,audio,video,render,input,netdev,plugdev,bluetooth,dialout $NUSER 2>/dev/null \
   || useradd -m -s /bin/bash -G sudo,audio,video,input $NUSER
@@ -331,6 +338,8 @@ cmd_rootfs() {
   [ -f "$DL/noxis-opsec_${VERSION}_all.deb" ] && [ -f "$DL/noxis-shell_${VERSION}_all.deb" ] && [ -f "$DL/noxis-hw-asteroids_${VERSION}_all.deb" ] || cmd_opsec
   [ -f "$DL/tor-browser.tar.xz" ] && [ -f "$DL/noxis-arkenfox.js" ] && [ -f "$DL/mullvad-keyring.asc" ] || cmd_fetch
   write_customize
+  MESA_HOOK=""
+  [ -f "$OUT/mesa-kgsl.tar.gz" ] && MESA_HOOK="copy-in $OUT/mesa-kgsl.tar.gz /tmp/noxis/" && c "Mesa (turnip-kgsl) kommt mit ins Rootfs"
   local devdir="$WORK/device"; mkdir -p "$devdir"
   if [ -n "$DEVICE_DEBS" ]; then cp "$DEVICE_DEBS"/*.deb "$devdir/"; fi
   c "Building Debian $SUITE ($ARCH) + Phosh + Noxis ($( [ -n "$NLANG" ] && [ "$NLANG" != ask ] && echo "$NLANG, $NTZ" || echo "language on first boot")) …"
@@ -346,6 +355,7 @@ cmd_rootfs() {
     --customize-hook="copy-in $DL/mullvad-keyring.asc $DL/noxis-arkenfox.js $(readlink -f "$DL/tor-browser.tar.xz") /tmp/noxis/" \
     --customize-hook="chroot \"\$1\" sh -c 'cd /tmp/noxis && ln -sf tor-browser-linux-aarch64-*.tar.xz tor-browser.tar.xz'" \
     --customize-hook="sync-in $devdir /tmp/noxis/device" \
+    ${MESA_HOOK:+--customize-hook="$MESA_HOOK"} \
     --customize-hook="copy-in $WORK/customize.sh /tmp/noxis/" \
     --customize-hook='chroot "$1" /tmp/noxis/customize.sh' \
     "$SUITE" "$ROOTFS_TAR" "$MIRROR"

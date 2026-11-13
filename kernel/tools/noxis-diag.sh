@@ -210,6 +210,7 @@ shell)
       noxis-shell/etc/noxis/dock.conf \
       noxis-shell/etc/pam.d/noxis \
       noxis-shell/etc/pam.d/noxis-greeter \
+      noxis-shell/etc/polkit-1/rules.d/50-noxis-power.rules \
       noxis-hw/etc/systemd/logind.conf.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/upower.service.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/rmtfs.service.d/90-noxis.conf \

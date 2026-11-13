@@ -50,6 +50,16 @@
 - **Waydroid** – run Android apps in a container
 - **Builds** – `git --depth=1`, signature checks, SHA-256, automatic cleanup
 
+## Alles in einem Rutsch
+
+```bash
+./noxis-full.sh            # Firmware, Mesa, Kernel, Rootfs bauen und flashen (fragt vor dem Löschen)
+./noxis-full.sh --no-flash # nur bauen
+```
+
+Beim ersten Start fragt das Handy nach Sprache, Zeitzone, eigener PIN und WLAN.
+Flashen überschreibt `userdata`. Zurück zu Nothing OS: `kernel/tools/noxis-try.sh --restore`.
+
 ## Installation auf dem Gerät
 
 ```sh
