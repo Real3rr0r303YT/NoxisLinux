@@ -82,6 +82,19 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   echo "--- danach /sys/class/drm ---"; ls -la /sys/class/drm 2>&1
   echo "--- dmesg-Nachtrag ---"; dmesg | tail -40 2>&1
 } > "$d/drm.log" 2>&1
+{ echo "--- /sys/class/power_supply ---"; ls -la /sys/class/power_supply 2>&1
+  for ps in /sys/class/power_supply/*; do
+    [ -d "$ps" ] || continue
+    echo "== ${ps##*/} =="
+    for f in type status present capacity voltage_now current_now technology; do
+      [ -r "$ps/$f" ] && echo "  $f=$(cat "$ps/$f" 2>/dev/null)"
+    done
+  done
+  echo "--- upower ---"; command -v upower >/dev/null && upower -d 2>&1 || echo "upower nicht installiert"
+  echo "--- logind-Sitzungen ---"; loginctl list-sessions --no-pager 2>&1; loginctl show-session --no-pager 2>&1
+  echo "--- systemd --user ---"; systemctl --user --no-pager status 2>&1 | head -5
+  echo "--- Netz ---"; nmcli -t device 2>&1; rfkill list 2>&1
+} > "$d/system.log" 2>&1
 journalctl -b --no-pager                > "$d/journal.log"  2>&1
 date                                    > "$d/when.log"     2>&1
 sync
@@ -127,7 +140,7 @@ fetch)
   adb shell "[ -d $M/var/log/noxis ] && echo yes" 2>/dev/null | grep -q yes \
     || { umount_root; die "keine Diagnose gefunden – lief der Dienst? Mindestens 90 Sekunden booten lassen."; }
   mkdir -p "$OUTDIR"
-  for f in when dmesg modules failed running drm journal; do
+  for f in when dmesg modules failed running drm system journal; do
     adb pull "$M/var/log/noxis/$f.log" "$OUTDIR/$f.log" >/dev/null 2>&1
   done
   umount_root

@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 [ "$1" = configure ] || exit 0
+# Powertaste: siehe /etc/systemd/logind.conf.d/90-noxis.conf
+command -v systemctl >/dev/null && systemctl try-reload-or-restart systemd-logind.service >/dev/null 2>&1 || true
+
 if [ -d /etc/systemd/system ]; then
   systemctl enable noxis-firmware-links.service noxis-radios.service noxis-bluetooth.service >/dev/null 2>&1 || true
   for s in rmtfs pd-mapper tqftpserv ModemManager; do systemctl enable "$s.service" >/dev/null 2>&1 || true; done
