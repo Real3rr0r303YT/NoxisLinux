@@ -130,6 +130,41 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
     echo "kein /opt/mesa-kgsl – erst build-mesa-kgsl.sh und noxis-diag.sh gpu"
   fi
 } > "$d/gpu.log" 2>&1
+{ echo "--- Pakete ---"
+  for p in squeekboard phosh-osk-stub phosh phosh-core kgx waydroid mullvad-vpn \
+           xwayland gnome-text-editor phosh-mobile-settings policykit-1 polkitd \
+           pkexec network-manager modemmanager rmtfs protection-domain-mapper; do
+    printf '  %-26s %s\n' "$p" "$(dpkg-query -W -f='${Status} ${Version}' "$p" 2>/dev/null || echo 'NICHT installiert')"
+  done
+  echo "--- Bildschirmtastatur ---"
+  echo "  Prozesse:"; ps -eo comm= | grep -iE "squeek|osk" | sort -u | sed 's/^/    /' || echo "    (keiner)"
+  echo "  DBus sm.puri.OSK0:"
+  ls -la /usr/share/dbus-1/services/*OSK* /usr/share/dbus-1/services/*squeek* 2>&1
+  ls -la /usr/lib/systemd/user/*OSK* /usr/lib/systemd/user/*squeek* 2>&1
+  for u in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $3}' | sort -u); do
+    echo "  gsettings fuer $u:"
+    uid=$(id -u "$u" 2>/dev/null) || continue
+    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus \
+      gsettings get org.gnome.desktop.a11y.applications screen-keyboard-enabled" 2>&1 | sed 's/^/    /'
+    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus \
+      systemctl --user list-units --no-pager --no-legend 'sm.puri*' 'squeek*'" 2>&1 | sed 's/^/    /'
+  done
+  echo "--- noxis-dock ---"; journalctl -b --no-pager | grep -a "noxis-dock" | tail -15
+  echo "--- Ausgaenge (wlr-randr) ---"; command -v wlr-randr >/dev/null && echo "  da" || echo "  fehlt"
+  echo "--- Starter, die nicht aufgehen ---"
+  for f in /usr/share/applications/noxis-rescue.desktop \
+           /usr/share/applications/noxis-tor-browser.desktop \
+           /usr/share/applications/mullvad-vpn.desktop; do
+    echo "  $f: $([ -f "$f" ] && echo da || echo fehlt)"
+  done
+  for b in /usr/lib/noxis/hw/noxis-to-rescue /usr/bin/noxis-tor-browser /opt/Mullvad*/mullvad-vpn; do
+    echo "  $b: $([ -x "$b" ] && echo ausfuehrbar || echo "fehlt/nicht ausfuehrbar")"
+  done
+  echo "--- polkit-Regeln ---"; ls -la /etc/polkit-1/rules.d/ 2>&1
+  echo "--- polkit-Agent laeuft? ---"; ps -eo comm= | grep -iE "polkit|agent" | sort -u | sed 's/^/    /'
+  echo "--- pkexec-Versuch (als Noxis-Benutzer, nicht interaktiv) ---"
+  journalctl -b --no-pager | grep -aiE "polkit|pkexec" | tail -20
+} > "$d/apps.log" 2>&1
 journalctl -b --no-pager                > "$d/journal.log"  2>&1
 date                                    > "$d/when.log"     2>&1
 sync
@@ -175,7 +210,7 @@ fetch)
   adb shell "[ -d $M/var/log/noxis ] && echo yes" 2>/dev/null | grep -q yes \
     || { umount_root; die "keine Diagnose gefunden – lief der Dienst? Mindestens 90 Sekunden booten lassen."; }
   mkdir -p "$OUTDIR"
-  for f in when dmesg modules failed running drm system gpu journal; do
+  for f in when dmesg modules failed running drm system gpu apps journal; do
     adb pull "$M/var/log/noxis/$f.log" "$OUTDIR/$f.log" >/dev/null 2>&1
   done
   umount_root
@@ -183,11 +218,15 @@ fetch)
   echo
   c "=== wann ==="; cat "$OUTDIR/when.log" 2>/dev/null
   echo; c "=== fehlgeschlagene Units ==="; cat "$OUTDIR/failed.log" 2>/dev/null
-  echo; c "=== Display-Module geladen? ==="
-  grep -iE "msm_drm|sde|dsi|panel|drm" "$OUTDIR/modules.log" 2>/dev/null || echo "  (keins)"
-  echo; c "=== DRM-Zustand ==="; cat "$OUTDIR/drm.log" 2>/dev/null | head -60
-  echo; c "=== Display im dmesg ==="
-  grep -inE "msm_drm|sde_|dsi|panel|drm" "$OUTDIR/dmesg.log" 2>/dev/null | tail -25 || echo "  (nichts)"
+  echo; c "=== Pakete, Tastatur, Starter ==="; cat "$OUTDIR/apps.log" 2>/dev/null \
+    || echo "  (kein apps.log – der Haken im Rootfs ist aelter, neu: noxis-diag.sh install)"
+  echo; c "=== Modem und WLAN ==="
+  sed -n '/--- Netz ---/,$p' "$OUTDIR/system.log" 2>/dev/null | head -80
+  echo; c "=== WLAN/Modem im dmesg ==="
+  grep -inE "icnss|wlan|cnss|qmi|rmtfs|mhi|modem|slpi|adsp" "$OUTDIR/dmesg.log" 2>/dev/null | tail -30 \
+    || echo "  (nichts)"
+  echo
+  c "Alles liegt in $OUTDIR – dmesg.log, journal.log, system.log, apps.log"
   ;;
 
 shell)
