@@ -28,6 +28,7 @@
 #                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
 #                             auth_no_resp_received); zurueck mit macrand
+#   ./noxis-diag.sh regdb     regulatory.db vom PC nachlegen (Funkregeln)
 #   ./noxis-diag.sh wpa2      WPA2 erzwingen (SAE/WPA3 laeuft mit diesem
 #                             Treiber in eine Zeitueberschreitung); zurueck: wpa3
 #   ./noxis-diag.sh osk       DBus-Aktivierung fuer die Bildschirmtastatur
@@ -539,6 +540,37 @@ osk)
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
   umount_root
+  ;;
+
+regdb)
+  # "Direct firmware load for regulatory.db failed with error -2" und
+  # "cfg80211: failed to load regulatory.db": die Funkregulierungs-Datenbank
+  # fehlt. Ohne sie kennt der Kernel keine Laenderregeln - weder Kanaele noch
+  # Sendeleistungen. Das Paket wireless-regdb war nie in der Paketliste.
+  #
+  # Die Datei ist nicht geraetespezifisch, sie liegt auf jedem Linux mit
+  # wireless-regdb. Also vom PC nehmen, statt sie herunterzuladen.
+  src=""
+  for d in /lib/firmware /usr/lib/firmware; do
+    [ -f "$d/regulatory.db" ] && { src="$d"; break; }
+  done
+  [ -n "$src" ] || die "regulatory.db auf diesem Rechner nicht gefunden.
+       Gentoo:  emerge -av net-wireless/wireless-regdb
+       Debian:  apt install wireless-regdb"
+  c "nehme $src/regulatory.db ($(wc -c < "$src/regulatory.db") B)"
+  need_recovery; mount_root
+  FW=$(fwdir)
+  mkdirs "$FW"
+  for f in regulatory.db regulatory.db.p7s; do
+    [ -f "$src/$f" ] || { c "  $f gibt es hier nicht (nur mit Signaturpruefung noetig)"; continue; }
+    adb push "$src/$f" "$FW/$f" >/dev/null 2>&1 \
+      && echo "  ok $f: $(adb shell "wc -c < $FW/$f" 2>/dev/null | tr -d '\r') B" \
+      || c "  $f nicht uebertragen"
+  done
+  n=$(adb shell "ls $FW/regulatory.db 2>/dev/null | wc -l" | tr -d '\r')
+  umount_root
+  [ "${n:-0}" -ge 1 ] || die "regulatory.db nicht ins Rootfs gekommen"
+  ok "regulatory.db eingelegt – wirkt beim naechsten Start"
   ;;
 
 wpa2)
