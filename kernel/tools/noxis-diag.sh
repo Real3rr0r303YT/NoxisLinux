@@ -28,6 +28,8 @@
 #                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
 #                             auth_no_resp_received); zurueck mit macrand
+#   ./noxis-diag.sh wlanlog  WLAN-Meldungen mitschreiben lassen
+#   ./noxis-diag.sh wlanfetch Mitschrift abholen
 #   ./noxis-diag.sh band24  nur 2,4 GHz nutzen (DFS-Kanal meiden)
 #   ./noxis-diag.sh regdb     regulatory.db vom PC nachlegen (Funkregeln)
 #   ./noxis-diag.sh wpa2      WPA2 erzwingen (SAE/WPA3 laeuft mit diesem
@@ -541,6 +543,72 @@ osk)
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
   umount_root
+  ;;
+
+wlanlog)
+  # Der Kernel sagt nicht mehr, warum die Anmeldung scheitert - das weiss
+  # nur wpa_supplicant und der NetworkManager. Deren Meldungen stehen im
+  # Journal, und an das Journal kommt der Gentoo-Rechner nicht heran
+  # (OpenRC, kein journalctl). Also schreibt das Handy selbst mit, in eine
+  # schlichte Textdatei, die wir hinterher aus der Recovery holen.
+  need_recovery; mount_root
+
+  d="$M/etc/NetworkManager/conf.d"
+  mkdirs "$d"
+  t=$(mktemp)
+  printf '[logging]\nlevel=TRACE\ndomains=WIFI,WIFI_SCAN,SUPPLICANT,DEVICE,CORE\n' > "$t"
+  adb push "$t" "$d/97-noxis-debug.conf" >/dev/null 2>&1 \
+    && echo "  ok ausfuehrliche Protokollierung eingeschaltet" || c "  conf nicht uebertragen"
+  rm -f "$t"
+
+  u="$M/usr/lib/systemd/system"
+  mkdirs "$u"
+  t=$(mktemp)
+  cat > "$t" <<'UNIT'
+[Unit]
+Description=Noxis: WLAN-Meldungen in eine Datei schreiben
+After=systemd-journald.service
+Wants=systemd-journald.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'echo "=== Start $(date) ===" >> /var/log/noxis-wlan.log'
+ExecStart=/bin/sh -c 'exec journalctl -f -n0 --no-pager -o short-iso -u NetworkManager -u wpa_supplicant >> /var/log/noxis-wlan.log'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  adb push "$t" "$u/noxis-wlanlog.service" >/dev/null 2>&1 \
+    && echo "  ok Dienst abgelegt" || c "  Dienst nicht uebertragen"
+  rm -f "$t"
+
+  w="$M/etc/systemd/system/multi-user.target.wants"
+  mkdirs "$w"
+  adb shell "ln -sf /usr/lib/systemd/system/noxis-wlanlog.service $w/noxis-wlanlog.service" >/dev/null 2>&1
+  adb shell "[ -e $w/noxis-wlanlog.service ] && echo yes" 2>/dev/null | grep -q yes \
+    && echo "  ok Dienst eingeschaltet" || c "  Dienst nicht eingeschaltet"
+
+  umount_root
+  ok "Mitschrift eingerichtet"
+  c "Jetzt starten, WLAN-Passwort eingeben, warten bis es aufgibt,"
+  c "dann zurueck in den Bootloader und:  ./kernel/tools/noxis-diag.sh wlanfetch"
+  ;;
+
+wlanfetch)
+  need_recovery; mount_root
+  mkdir -p "$OUTDIR"
+  adb pull "$M/var/log/noxis-wlan.log" "$OUTDIR/wlan.log" >/dev/null 2>&1
+  umount_root
+  [ -s "$OUTDIR/wlan.log" ] || die "keine Mitschrift gefunden - lief 'wlanlog' und war das System an?"
+  ok "Mitschrift in $OUTDIR/wlan.log ($(wc -l < "$OUTDIR/wlan.log") Zeilen)"
+  echo
+  c "=== letzter Verbindungsversuch ==="
+  grep -aiE "supplicant|assoc|auth|handshake|psk|deauth|disconnect|reason|state change|scan|freq|band|timeout|fail" \
+    "$OUTDIR/wlan.log" | tail -70
+  echo
+  c "Vollstaendig: $OUTDIR/wlan.log"
   ;;
 
 band24)
