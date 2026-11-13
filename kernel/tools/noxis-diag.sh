@@ -28,6 +28,7 @@
 #                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
 #                             auth_no_resp_received); zurueck mit macrand
+#   ./noxis-diag.sh uhr      Uhr des Handys auf die Zeit des Rechners stellen
 #   ./noxis-diag.sh fw-aus   Killswitch aus (Test ohne VPN), fw-an = wieder an
 #   ./noxis-diag.sh mullvad-gui  Mullvad-Oberflaeche unter Wayland starten
 #   ./noxis-diag.sh nosae    SAE im Treiber abschalten (WPA2 erzwingen)
@@ -165,6 +166,42 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   echo "--- Hardware-Dienste ---"
   systemctl --no-pager -n 15 status noxis-install-debs noxis-firmware-links noxis-radios rmtfs pd-mapper tqftpserv 2>&1 | head -90; journalctl -b --no-pager -u rmtfs -u pd-mapper -u noxis-install-debs -u noxis-radios 2>&1 | tail -40
 } > "$d/system.log" 2>&1
+{ echo "--- Uhr ---"; date; timedatectl 2>&1 | head -8
+  echo "--- Adressen und Routen ---"; ip -br addr 2>&1; ip route 2>&1
+  echo "--- Firewall ---"
+  systemctl is-active noxis-firewall.service 2>&1
+  nft list tables 2>&1
+  nft list ruleset 2>&1 | grep -E "policy|counter" | head -30
+  echo "--- Mullvad ---"; mullvad status 2>&1 | head -5
+  mullvad lockdown-mode get 2>&1; mullvad auto-connect get 2>&1; mullvad account get 2>&1 | sed 's/[0-9]\{6,\}/<Nummer>/g' | head -3
+  echo "--- DNS ---"; resolvectl status 2>&1 | head -25
+  echo "--- Erreichbarkeit ---"
+  ping -c1 -W3 9.9.9.9 >/dev/null 2>&1 && echo "  ping 9.9.9.9: ok" || echo "  ping 9.9.9.9: NEIN"
+  timeout 8 resolvectl query deb.debian.org 2>&1 | head -4
+  timeout 10 curl -sS -o /dev/null -w "  https deb.debian.org: %{http_code}\n" https://deb.debian.org/ 2>&1 | tail -2
+  echo "--- resolved/timesyncd im Journal ---"
+  journalctl -b --no-pager -u systemd-resolved -u systemd-timesyncd 2>&1 | tail -15
+  echo "--- Modem ---"
+  systemctl is-active ModemManager rmtfs pd-mapper tqftpserv 2>&1 | tr '\n' ' '; echo
+  mmcli -L 2>&1; mmcli -m any 2>&1 | sed 's/[0-9]\{14,\}/<Nummer>/g' | head -45
+  echo "--- Mullvad-Oberflaeche ---"
+  ls -d /opt/Mullvad* 2>&1; ls /usr/share/applications /usr/local/share/applications 2>/dev/null | grep -i mullvad
+  if [ ! -e /run/noxis-guitest ] && [ -x "/opt/Mullvad VPN/mullvad-gui" ]; then
+    u=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3!="root"{print $3}' | head -n1)
+    if [ -n "$u" ]; then
+      : > /run/noxis-guitest
+      uid=$(id -u "$u")
+      wl=$(ls /run/user/$uid/ 2>/dev/null | grep -m1 '^wayland-[0-9]*$')
+      echo "  Teststart als $u auf $wl:"
+      su - "$u" -c "XDG_RUNTIME_DIR=/run/user/$uid WAYLAND_DISPLAY=$wl timeout 20 '/opt/Mullvad VPN/mullvad-gui' --ozone-platform=wayland --disable-gpu" 2>&1 | tail -25
+      echo "  rc=$?"
+    else
+      echo "  (noch niemand angemeldet - Test in der naechsten Runde)"
+    fi
+  fi
+} > "$d/net.log.new" 2>&1
+grep -q "Teststart" "$d/net.log.new" && cp "$d/net.log.new" "$d/net-gui.log"
+mv "$d/net.log.new" "$d/net.log"
 { echo "--- KGSL ---"; ls -la /dev/kgsl* /dev/dma_heap 2>&1
   if [ -d /opt/mesa-kgsl ]; then
     icd=$(ls /opt/mesa-kgsl/share/vulkan/icd.d/freedreno_icd*.json 2>/dev/null | head -n1)
@@ -268,7 +305,7 @@ fetch)
   adb shell "[ -d $M/var/log/noxis ] && echo yes" 2>/dev/null | grep -q yes \
     || { umount_root; die "keine Diagnose gefunden – lief der Dienst? Mindestens 90 Sekunden booten lassen."; }
   mkdir -p "$OUTDIR"
-  for f in when dmesg modules failed running drm system gpu apps journal; do
+  for f in when dmesg modules failed running drm system gpu apps journal net net-gui; do
     adb pull "$M/var/log/noxis/$f.log" "$OUTDIR/$f.log" >/dev/null 2>&1
   done
   umount_root
@@ -280,6 +317,10 @@ fetch)
     || echo "  (kein apps.log – der Haken im Rootfs ist aelter, neu: noxis-diag.sh install)"
   echo; c "=== Modem und WLAN ==="
   sed -n '/--- Netz ---/,$p' "$OUTDIR/system.log" 2>/dev/null | head -80
+  echo; c "=== Netz, Uhr, Firewall, Mullvad, Modem ==="; cat "$OUTDIR/net.log" 2>/dev/null \
+    || echo "  (kein net.log - der Sammler ist aelter, neu: noxis-diag.sh install)"
+  echo; c "=== Teststart der Mullvad-Oberflaeche ==="
+  sed -n '/Teststart/,$p' "$OUTDIR/net-gui.log" 2>/dev/null | head -30
   echo; c "=== WLAN/Modem im dmesg ==="
   grep -inE "icnss|wlan|cnss|qmi|rmtfs|mhi|modem|slpi|adsp" "$OUTDIR/dmesg.log" 2>/dev/null | tail -30 \
     || echo "  (nichts)"
@@ -548,6 +589,29 @@ osk)
   umount_root
   ;;
 
+uhr)
+  # Die Uhr des Handys steht Monate in der Vergangenheit. Damit gelten die
+  # TLS-Zertifikate als "noch nicht gueltig" - und weil Noxis DNS nur ueber
+  # TLS macht, loest dann kein einziger Name mehr auf. Ohne DNS findet auch
+  # der Zeitabgleich seinen Server nicht: die Uhr repariert sich nie selbst.
+  # systemd stellt die Uhr beim Start mindestens auf den Zeitstempel dieser
+  # zwei Dateien. Wir setzen sie auf die Zeit des Rechners.
+  need_recovery; mount_root
+  now=$(date +%s)
+  mkdirs "$M/var/lib/systemd/timesync"
+  for f in "$M/usr/lib/clock-epoch" "$M/var/lib/systemd/timesync/clock"; do
+    adb shell "touch $f; touch -d @$now $f 2>/dev/null || touch -d \"$(date -u '+%Y-%m-%d %H:%M:%S')\" $f" >/dev/null 2>&1
+    echo "  ok ${f#$M}: $(adb shell "date -r $f '+%Y-%m-%d %H:%M'" 2>/dev/null | tr -d '\r')"
+  done
+  # Zeitserver zusaetzlich als feste Adressen, damit der Abgleich kein DNS braucht
+  d="$M/etc/systemd/timesyncd.conf.d"; mkdirs "$d"
+  t=$(mktemp); printf '[Time]\nFallbackNTP=162.159.200.1 162.159.200.123 time.cloudflare.com\n' > "$t"
+  adb push "$t" "$d/90-noxis.conf" >/dev/null 2>&1 && echo "  ok Zeitserver ohne DNS eingetragen"
+  rm -f "$t"
+  umount_root
+  ok "Uhr vorgestellt auf $(date '+%Y-%m-%d %H:%M') - wirkt beim naechsten Start"
+  ;;
+
 fw-aus|fw-an)
   # Der Killswitch besteht aus zwei Teilen: noxis-firewall (nur der
   # Mullvad-Tunnel darf raus) und Mullvads Lockdown-Modus, den ein Timer alle
@@ -567,10 +631,17 @@ fw-aus|fw-an)
       adb shell "[ -L $e/$u ] && rm -f $e/$u" >/dev/null 2>&1
     fi
   done
-  echo "  ok Dienste: $( [ "$1" = fw-aus ] && echo maskiert || echo freigegeben )"
+  m=$(adb shell "ls -l $e/noxis-firewall.service 2>/dev/null" | grep -c '/dev/null')
+  if [ "$1" = fw-aus ]; then
+    [ "$m" -ge 1 ] && echo "  ok Dienste maskiert" || c "  ACHTUNG: Maskierung hat nicht geklappt"
+  else
+    [ "$m" -eq 0 ] && echo "  ok Dienste freigegeben" || c "  ACHTUNG: Maske ist noch da"
+  fi
   t=$(mktemp)
   if adb pull "$js" "$t" >/dev/null 2>&1 && [ -s "$t" ]; then
-    sed -i -E "s/(\"(block_when_disconnected|lockdown_mode)\"[[:space:]]*:[[:space:]]*)(true|false)/\1$want/g" "$t"
+    # auto_connect gehoert dazu: ohne Konto scheitert das Verbinden, und im
+    # Fehlerzustand sperrt Mullvad den ganzen Verkehr - auch ohne Lockdown.
+    sed -i -E "s/(\"(block_when_disconnected|lockdown_mode|auto_connect)\"[[:space:]]*:[[:space:]]*)(true|false)/\1$want/g" "$t"
     adb push "$t" "$js" >/dev/null 2>&1 && echo "  ok Mullvad-Lockdown: $want"
   else
     c "  keine Mullvad-Einstellungen gefunden (uebersprungen)"

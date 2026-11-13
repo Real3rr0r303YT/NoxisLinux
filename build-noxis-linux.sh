@@ -375,6 +375,28 @@ systemctl set-default graphical.target
 apt-get purge -y -q openssh-server 2>/dev/null || true
 systemctl mask --quiet ssh.service 2>/dev/null || true
 
+# WLAN: SAE im Treiber abschalten. NetworkManager haengt an jedes WPA2-Profil
+# "SAE FT-SAE" an, der Treiber waehlt SAE und laeuft in eine Zeitueberschreitung.
+for ini in /lib/firmware/updates/wlan/qca_cld/*/WCNSS_qcom_cfg.ini; do
+  [ -f "\$ini" ] || continue
+  sed -i '/^[[:space:]]*sae_enabled[[:space:]]*=/d' "\$ini"
+  if grep -q '^END' "\$ini"; then sed -i '0,/^END/s//sae_enabled=0\nEND/' "\$ini"; else echo 'sae_enabled=0' >> "\$ini"; fi
+done
+
+# Uhr: Zeitserver auch als feste Adressen. DNS laeuft nur ueber TLS, und mit
+# falscher Uhr gilt kein Zertifikat - dann faende der Zeitabgleich nie einen Server.
+mkdir -p /etc/systemd/timesyncd.conf.d
+printf '[Time]\nFallbackNTP=162.159.200.1 162.159.200.123 time.cloudflare.com\n' > /etc/systemd/timesyncd.conf.d/90-noxis.conf
+touch /usr/lib/clock-epoch
+
+# Mullvad-Oberflaeche: Electron sucht sonst einen X-Server, Phosh hat nur Wayland
+for f in /usr/share/applications/mullvad-vpn.desktop; do
+  [ -f "\$f" ] || continue
+  mkdir -p /usr/local/share/applications
+  sed -e '/^Exec=/s# %[UuFf]\$##' -e '/^Exec=/s#\$# --ozone-platform=wayland --enable-features=UseOzonePlatform,WaylandWindowDecorations --disable-gpu %U#' "\$f" \
+    > /usr/local/share/applications/mullvad-vpn.desktop
+done
+
 # clean up the image
 apt-get clean
 rm -rf /var/lib/apt/lists/* /tmp/noxis /var/log/*.log
