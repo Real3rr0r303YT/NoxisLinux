@@ -26,6 +26,8 @@
 #   ./noxis-diag.sh usbnet-off  denselben Dienst wieder abschalten
 #   ./noxis-diag.sh bdf       Funkkalibrierung: Board-Dateien suchen, das von
 #                             vendorfw angelegte Verzeichnis entfernen
+#   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
+#                             auth_no_resp_received); zurueck mit macrand
 #   ./noxis-diag.sh osk       DBus-Aktivierung fuer die Bildschirmtastatur
 #                             (sm.puri.OSK0) nachlegen
 #
@@ -537,6 +539,44 @@ osk)
   umount_root
   ;;
 
+macperm)
+  # Noxis setzt per noxis-opsec eine zufaellige MAC (wifi.cloned-mac-address=
+  # random). Nimmt die Firmware des WLAN-Moduls diese Adresse nicht an, sendet
+  # es zwar, aber die Antwort des Routers geht an eine Adresse, die die
+  # Firmware nicht kennt - fuer wpa_supplicant sieht das aus wie
+  # "auth_no_resp_received", also genau der Fehler bei der Anmeldung.
+  #
+  # Dieser Modus legt eine eigene Datei mit hoeherer Nummer daneben, statt
+  # 90-noxis.conf anzufassen: rueckgaengig machen heisst dann, eine Datei zu
+  # loeschen, und die Opsec-Einstellung bleibt im Paket erhalten.
+  #
+  # ABWAEGUNG, die du kennen musst: mit der echten MAC ist dein Geraet in
+  # fremden Netzen ueber die Hardware-Adresse wiedererkennbar. Das ist genau
+  # das, was die zufaellige MAC verhindern soll. Nur zum Pruefen gedacht -
+  # bestaetigt sich der Verdacht, suchen wir eine Loesung, die beides kann
+  # (etwa "stable" je Netz statt "random" je Verbindung).
+  need_recovery; mount_root
+  d="$M/etc/NetworkManager/conf.d"
+  adb shell "mkdir -p $d" >/dev/null 2>&1
+  adb shell "printf '# Noxis – nur zum Pruefen: echte MAC statt zufaelliger.\n# Entfernen stellt die Opsec-Einstellung aus 90-noxis.conf wieder her.\n[device]\nwifi.scan-rand-mac-address=no\n\n[connection]\nwifi.cloned-mac-address=permanent\nethernet.cloned-mac-address=permanent\n' > $d/99-noxis-macperm.conf"
+  adb shell "cat $d/99-noxis-macperm.conf 2>/dev/null | sed 's/^/  /'"
+  adb shell "[ -f $d/99-noxis-macperm.conf ] && echo da" 2>/dev/null | grep -q da \
+    || { umount_root; die "Datei nicht angelegt"; }
+  ok "echte MAC gesetzt – wirkt beim naechsten Start"
+  c "Rueckgaengig:  noxis-diag.sh macrand"
+  umount_root
+  ;;
+
+macrand)
+  # Die Pruefdatei von "macperm" wieder entfernen: zurueck zur zufaelligen MAC.
+  need_recovery; mount_root
+  adb shell "rm -f $M/etc/NetworkManager/conf.d/99-noxis-macperm.conf" >/dev/null 2>&1
+  adb shell "[ -e $M/etc/NetworkManager/conf.d/99-noxis-macperm.conf ] && echo da" 2>/dev/null \
+    | grep -q da && { umount_root; die "Datei liess sich nicht entfernen"; }
+  ok "zurueck auf zufaellige MAC – wirkt beim naechsten Start"
+  umount_root
+  ;;
+
 bdf)
   # "Board id: 0" und "BDF VER is 0, FW and BDF ver check skipped": die
   # Firmware laeuft ohne gueltige Funkkalibrierung. Dann empfaengt das Modul,
@@ -582,7 +622,7 @@ bdf)
   # updates/ legen: der Firmware-Lader durchsucht das vor /lib/firmware, und
   # dort kann kein Verweis dazwischenkommen.
   for f in bdwlan.elf bdwlan.bin regdb.bin; do
-    src=$(adb shell "ls /tmp/mdm/qca6750/$f 2>/dev/null" | tr -d '\r')
+    src=$(adb shell "ls /tmp/mdm/image/qca6750/$f /tmp/mdm/qca6750/$f 2>/dev/null | head -1" | tr -d '\r')
     [ -n "$src" ] || continue
     mkdirs "$FW/updates/qca6750" 2>/dev/null || true
     adb shell "mkdir -p $FW/updates/qca6750; cp $src $FW/updates/qca6750/$f 2>&1; \
