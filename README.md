@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/bootlogo.png" alt="Noxis OS" width="320">
+  <img src="docs/img/bootlogo.png" alt="Noxis Linux" width="320">
 </p>
 
 <h1 align="center">Noxis Linux</h1>
@@ -62,6 +62,10 @@
 ```
 
 Beim ersten Start fragt das Handy nach Sprache, Zeitzone, eigener PIN und WLAN.
+Im Abbild stecken die auf dem Gerät gefundenen Korrekturen: `wireless-regdb`,
+`sae_enabled=0` für WLAN, Zeitserver ohne DNS, die Rechte für die
+Mullvad-Oberfläche und den Tor Browser, `fastfetch` mit eigenem Logo.
+Internet gibt es erst mit verbundenem Mullvad – siehe „Killswitch" unten.
 Flashen überschreibt `userdata`. Zurück zu Nothing OS: `kernel/tools/noxis-try.sh --restore`.
 
 ## Noxis Rescue (statt Stock-Recovery)
@@ -188,29 +192,39 @@ Config: added 'key_mgmt' value 'WPA-PSK WPA-PSK-SHA256 FT-PSK SAE FT-SAE'
 Nach aussen sieht das wie ein falsches Passwort aus: NetworkManager meldet
 jeden Fehlschlag so, obwohl es nie zum Schluesselaustausch kommt.
 
-**Pro Profil zu schrauben nuetzt nichts.** Die Einstellungen-App legt bei
-jeder Passworteingabe ein neues Profil mit der vollen Standardliste an, also
-muss es ein Vorgabewert fuer alle Verbindungen sein:
+**Im Profil laesst sich das nicht abstellen.** NetworkManager haengt an
+jedes WPA2-Profil von sich aus `SAE FT-SAE` an, sobald wpa_supplicant SAE
+beherrscht. Der naheliegende Versuch – `wifi-sec.pmf=1` als Vorgabe
+(`noxis-diag.sh wpa2`), weil SAE PMF voraussetzt – aendert nur
+`ieee80211w` auf 0; die Liste bleibt, der Treiber waehlt weiter SAE und der
+Fehler bleibt derselbe.
+
+**Was geholfen hat: SAE im Treiber abschalten.**
 
 ```ini
-# /etc/NetworkManager/conf.d/95-noxis-wpa2.conf
-[connection]
-wifi-sec.pmf=1
+# WCNSS_qcom_cfg.ini, vor der Zeile END
+sae_enabled=0
 ```
 
-`pmf=1` heisst „Protected Management Frames aus". SAE setzt PMF zwingend
-voraus und faellt damit weg; es bleibt bei WPA2-PSK. Einzuspielen mit
-`noxis-diag.sh wpa2`, zurueck mit `noxis-diag.sh wpa3`. Danach das Netz im
-WLAN-Menue einmal vergessen, damit ein frisches Profil entsteht.
+Damit meldet der Treiber kein SAE mehr an, wpa_supplicant streicht es aus
+der Auswahl und die Anmeldung laeuft ueber WPA2-PSK. Einzuspielen mit
+`noxis-diag.sh nosae`; `build-noxis-linux.sh` traegt die Zeile bei neuen
+Abbildern selbst ein. **Auf dem Geraet bestaetigt: danach verbindet es.**
 
-**Abwaegung:** damit ist WPA3 auf dem Geraet aus und der Schutz der
-Verwaltungsrahmen entfaellt, der sonst Deauth-Angriffe erschwert. Das ist
-eine Notloesung fuer einen Treiber, dessen SAE nicht funktioniert, keine gute
-Einstellung an sich.
+**Abwaegung:** damit ist WPA3 auf dem Geraet aus. Das ist eine Notloesung
+fuer einen Treiber, dessen SAE-Handschlag mit dem unveraenderten
+wpa_supplicant von Debian nicht zustande kommt, keine gute Einstellung an
+sich.
+
+**Wie der Grund gefunden wurde:** der Kernel nennt ihn irgendwann nicht mehr,
+und an das Journal des Handys kommt ein Rechner ohne systemd nicht heran.
+`noxis-diag.sh wlanlog` laesst das Handy die Meldungen von NetworkManager und
+wpa_supplicant in eine Textdatei schreiben, `noxis-diag.sh wlanfetch` holt
+sie ab.
 
 ### WLAN: was es NICHT war
 
-Drei Verdaechtigungen, die sich nicht bestaetigt haben – damit sie niemand
+Vier Verdaechtigungen, die sich nicht bestaetigt haben – damit sie niemand
 noch einmal durchprobiert:
 
 - **Die Funkkalibrierung.** `Board id: 0` und `BDF VER is 0, FW and BDF ver
@@ -222,6 +236,9 @@ noch einmal durchprobiert:
   `phy#0 (self-managed)` mit `country US`, `iw reg set DE` ist also
   wirkungslos. Fuer 2,4 GHz spielt das keine Rolle: das Netz sendet auf
   Kanal 6, der auch unter US erlaubt ist.
+- **Der 5-GHz-Kanal.** Das Netz sendet auch auf Kanal 100 (DFS). Mit
+  `noxis-diag.sh band24` auf 2,4 GHz festgelegt (`freq_list 2412 …` im
+  Log) blieb der Fehler derselbe.
 - **Die zufaellige MAC** aus `noxis-opsec`
   (`wifi.cloned-mac-address=random`). Mit `macperm` auf die echte MAC
   umgestellt bleibt der Fehler derselbe.
@@ -274,6 +291,93 @@ Ein Hinweis zum Testen: ein `modprobe -r` plus `modprobe` genügt dafür nicht.
 Das Signal „WLAN FW is ready" gibt die Firmware nur einmal je Start des
 WLAN-Prozessors; nach dem Nachladen wartet der Treiber vergeblich darauf. Die
 Ini wirkt erst nach einem echten Neustart.
+
+### Verbunden, aber kein Internet: der Killswitch
+
+Das ist kein Fehler, sondern die Absicht von `noxis-opsec`: `noxis-firewall`
+laesst nach draussen nur den Mullvad-Tunnel durch, und Mullvad steht
+zusaetzlich auf `lockdown-mode on` (ein Timer setzt das alle fuenf Minuten
+neu). Ohne verbundenes Mullvad geht kein Paket raus – auch kein DNS, kein
+`apt`, kein Zeitabgleich.
+
+Zum Testen ohne VPN:
+
+```bash
+./kernel/tools/noxis-diag.sh fw-aus    # Firewall + Lockdown + Auto-Connect aus
+./kernel/tools/noxis-diag.sh fw-an     # wieder scharf
+```
+
+Mit `fw-aus` laeuft der Verkehr **offen ueber das WLAN, ohne Tunnel**.
+`auto_connect` gehoert dazu: ohne Konto scheitert das Verbinden, und im
+Fehlerzustand sperrt Mullvad den Verkehr auch ohne Lockdown.
+
+### Falsche Uhr: kein Zertifikat gilt, also kein DNS
+
+Die Echtzeituhr des Geraets steht auf 1970, systemd startet darum mit dem
+Datum des Abbilds. Liegt das Monate zurueck, gelten TLS-Zertifikate als
+„noch nicht gueltig". Noxis macht DNS nur ueber TLS – dann loest kein Name
+mehr auf, auch der des Zeitservers nicht, und die Uhr repariert sich nie.
+
+- `noxis-diag.sh uhr` stellt die Uhr auf die Zeit des Rechners vor
+  (`/usr/lib/clock-epoch` und die Datei von systemd-timesyncd).
+- Zeitserver stehen zusaetzlich als feste Adressen in
+  `/etc/systemd/timesyncd.conf.d/90-noxis.conf`, der Abgleich braucht also
+  kein DNS mehr. Auf dem Geraet bestaetigt:
+  `Contacted time server 162.159.200.1:123`.
+
+Die Uhr stellt sich etwa eine Minute nach dem Verbinden. Davor koennen
+`apt update` und Webseiten noch an Zertifikaten scheitern.
+
+### Mullvad-Oberflaeche und Tor Browser starten nicht
+
+Beides waren Dateirechte, beides blieb stumm:
+
+- **Mullvad:** `The SUID sandbox helper binary was found, but is not
+  configured correctly … chrome-sandbox is owned by root and has mode 4755`.
+  Das setuid-Bit geht beim Bau des Rootfs verloren, und der Kernel hat keine
+  User-Namespaces als Ausweg. `noxis-diag.sh mullvad-gui` setzt die Rechte
+  und legt einen Starter mit `--ozone-platform=wayland` ab.
+- **Tor Browser:** das Archiv packt `/opt/tor-browser` mit `drwx------ root`
+  aus. Der Starter laeuft als Benutzer, sieht nichts und beendet sich.
+  `noxis-diag.sh tor` macht den Ordner lesbar; die beschreibbare Kopie legt
+  der Starter beim ersten Antippen selbst an (etwa eine Minute).
+
+Beide Korrekturen stehen auch in `build-noxis-linux.sh`. Tor braucht
+ausserdem eine Verbindung nach draussen – mit scharfem Killswitch also
+einen verbundenen Mullvad-Tunnel.
+
+### Netzdiagnose
+
+`noxis-diag.sh install` richtet einen Dienst ein, der alle 20 Sekunden einen
+Schnappschuss nach `/var/log/noxis` schreibt; `noxis-diag.sh fetch` holt ihn
+aus der Recovery. `net.log` enthaelt Uhr, Adressen, Firewall, Mullvad, DNS,
+Erreichbarkeit, Modem und einen Teststart der Mullvad-Oberflaeche mit ihrer
+Fehlermeldung.
+
+### Eigenes Logo: Noxis Linux ist nicht Noxis OS
+
+Startbildschirm (Plymouth), Systemname (`os-release`, `/etc/issue`) und
+`fastfetch` zeigen Noxis Linux – ohne die Android-Figuren des
+Schwesterprojekts. `fastfetch` ist Teil des Abbilds; Logo und Aufbau liegen
+in `/usr/share/noxis/fastfetch/logo.txt` und
+`/etc/xdg/fastfetch/config.jsonc`. Die lokale IP-Adresse fehlt dort
+absichtlich, weil die Ausgabe in Screenshots und Videos landet.
+
+Auf ein bestehendes System: `noxis-diag.sh brand`.
+
+### Stand der Hardware (Nothing Phone (3a), 14.11.2026)
+
+| Teil | Stand |
+|---|---|
+| Start, Anzeige, Touch, Akku, Bildschirmtastatur | geht |
+| WLAN (WPA2) | **geht** – braucht `WCNSS_qcom_cfg.ini`, `regulatory.db`, `sae_enabled=0` |
+| WLAN mit WPA3 (SAE) | geht nicht, im Treiber abgeschaltet |
+| Internet, DNS, Zeitabgleich | geht (Killswitch beachten) |
+| Mullvad-Oberflaeche, Tor Browser | Ursache gefunden und korrigiert, auf dem Geraet noch nicht bestaetigt |
+| Mobilfunk, Telefonie | **geht nicht** – `mmcli`: „No modems were found", `pd-mapper` bleibt im Start haengen |
+| GPU-Beschleunigung | ungetestet, nur auf Wunsch (`noxis-gpu an`) |
+| Bluetooth | ungetestet |
+| USB-Shell vom Rechner | Schnittstelle steht, das Handy antwortet nicht |
 
 ## Installation auf dem Gerät
 
@@ -509,7 +613,7 @@ All traffic – Wi-Fi and mobile data – still leaves only through the Mullvad 
 | Greeter | `/usr/lib/noxis/greeter/noxis-greeter` | cage + GTK4, speaks the greetd protocol with noxis-dm: status icons, clock, logo, PIN pad **reshuffled** on every start/failure, lockout 30 s → max 15 min from the 4th failure, mobile/desktop session with icons, restart/power off |
 | Desktop mode | `/usr/lib/noxis/noxis-dock` | external display detected → switch on, arrange, on-screen keyboard off; unplugged → everything back |
 | Branding | `/usr/share/noxis/branding/*.svg` | logo, wordmark, app icon, portrait/landscape wallpapers |
-| Boot splash | `/usr/share/plymouth/themes/noxis` | Plymouth: Noxis OS emblem, pulsing, PIN prompt for encryption |
+| Boot splash | `/usr/share/plymouth/themes/noxis` | Plymouth: Noxis Linux emblem, pulsing, PIN prompt for encryption |
 
 Settings: `/etc/noxis/dm.conf` (VT, greeter command, allowed sessions) · `/etc/noxis/greeter.conf` (user, shuffling, PIN length for auto-submit) · `/etc/noxis/dock.conf` (phone display on/off, position, scale).
 

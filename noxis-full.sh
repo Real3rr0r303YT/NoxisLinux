@@ -117,6 +117,16 @@ fi
 for f in boot.img initramfs.cpio.lz4; do [ -f "$OUT/$f" ] || die "$OUT/$f fehlt nach dem Kernel-Bau"; done
 ok "Kernel fertig"
 
+# WLAN braucht die Konfigurationsdatei des Treibers im Rootfs. Sie liegt nur
+# auf der vendor-Partition; noxis-diag.sh wlan spiegelt sie ins Backup, und
+# von dort nimmt der Rootfs-Bau sie mit (samt sae_enabled=0).
+if ls "$BK"/vendor-firmware/updates/wlan/qca_cld/*/WCNSS_qcom_cfg.ini >/dev/null 2>&1; then
+  ok "WLAN-Konfiguration liegt im Backup und kommt ins Rootfs"
+else
+  ask "WCNSS_qcom_cfg.ini fehlt im Backup – das neue System haette KEIN WLAN."
+  ask "Nach dem Flashen einmal:  kernel/tools/noxis-diag.sh wlan && kernel/tools/noxis-diag.sh nosae"
+fi
+
 # ------------------------------------------------------------------ 4 rootfs
 hdr "4/5 Rootfs (Debian + Phosh + Noxis) – dauert lange"
 NOXIS_LANG=ask "${RUN[@]}" "$HERE/build-noxis-linux.sh" container || die "Rootfs-Bau fehlgeschlagen"
@@ -140,5 +150,8 @@ echo
 ok "Fertig nach $(( ($(date +%s) - START) / 60 )) Minuten."
 c "Erster Start dauert 1–3 Minuten. Dann die Einrichtung:"
 c "  Sprache → Zeitzone → eigene PIN (zweimal) → WLAN (optional) → Anmelden (Mobil)"
+c "Internet gibt es erst mit verbundenem Mullvad (Killswitch). Zum Testen ohne VPN:"
+c "  kernel/tools/noxis-diag.sh fw-aus     (zurueck: fw-an)"
+c "Mobilfunk geht noch nicht. WLAN laeuft ueber WPA2."
 c "Zurueck zu Nothing OS jederzeit: kernel/tools/noxis-try.sh --restore"
 c "Log: $LOG"

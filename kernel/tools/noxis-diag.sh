@@ -28,6 +28,8 @@
 #                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
 #                             auth_no_resp_received); zurueck mit macrand
+#   ./noxis-diag.sh tor      Tor Browser lesbar machen (startete stumm nicht)
+#   ./noxis-diag.sh brand    Startlogo, Systemname, fastfetch-Logo: Noxis Linux
 #   ./noxis-diag.sh uhr      Uhr des Handys auf die Zeit des Rechners stellen
 #   ./noxis-diag.sh fw-aus   Killswitch aus (Test ohne VPN), fw-an = wieder an
 #   ./noxis-diag.sh mullvad-gui  Mullvad-Oberflaeche unter Wayland starten
@@ -185,7 +187,7 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   systemctl is-active ModemManager rmtfs pd-mapper tqftpserv 2>&1 | tr '\n' ' '; echo
   mmcli -L 2>&1; mmcli -m any 2>&1 | sed 's/[0-9]\{14,\}/<Nummer>/g' | head -45
   echo "--- Mullvad-Oberflaeche ---"
-  ls -d /opt/Mullvad* 2>&1; ls /usr/share/applications /usr/local/share/applications 2>/dev/null | grep -i mullvad
+  ls -d /opt/Mullvad* 2>&1; ls -ln "/opt/Mullvad VPN/chrome-sandbox" 2>&1; ls /usr/share/applications /usr/local/share/applications 2>/dev/null | grep -i mullvad
   if [ ! -e /run/noxis-guitest ] && [ -x "/opt/Mullvad VPN/mullvad-gui" ]; then
     u=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3!="root"{print $3}' | head -n1)
     if [ -n "$u" ]; then
@@ -587,6 +589,46 @@ osk)
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
   umount_root
+  ;;
+
+tor)
+  # /opt/tor-browser gehoert root mit Rechten drwx------ (so steckt es im
+  # Archiv). Der Starter prueft als normaler Benutzer, ob start-tor-browser
+  # da ist, sieht nichts und beendet sich stumm. Lesbar machen genuegt - die
+  # beschreibbare Kopie legt der Starter dann selbst im Benutzerordner an.
+  need_recovery; mount_root
+  adb shell "chown -R 0:0 $M/opt/tor-browser; chmod -R a+rX,go-w $M/opt/tor-browser" 2>&1 | sed '/^$/d;s/^/    /'
+  echo "  /opt/tor-browser: $(adb shell "ls -ldn $M/opt/tor-browser" 2>/dev/null | tr -d '\r' | cut -c1-24)"
+  src="$REPO/noxis-opsec/usr/bin/noxis-tor-browser"
+  [ -f "$src" ] && adb push "$src" "$M/usr/bin/noxis-tor-browser" >/dev/null 2>&1 \
+    && adb shell "chmod 755 $M/usr/bin/noxis-tor-browser" && echo "  ok Starter aktualisiert"
+  umount_root
+  ok "Tor Browser lesbar - der erste Start kopiert ihn (etwa eine Minute)"
+  ;;
+
+brand)
+  # Noxis Linux ist nicht Noxis OS: eigenes Startlogo (ohne die
+  # Android-Figuren), eigener Name im System, eigenes fastfetch-Logo.
+  need_recovery; mount_root
+  n=0
+  put() {  # put <Datei im Repo> <Ziel im System>
+    [ -f "$REPO/$1" ] || { c "  fehlt im Repo: $1"; return; }
+    mkdirs "$M$(dirname "$2")"
+    adb push "$REPO/$1" "$M$2" >/dev/null 2>&1 && adb shell "chmod 644 $M$2" >/dev/null 2>&1 && n=$((n+1))
+  }
+  put noxis-shell/usr/share/plymouth/themes/noxis/logo.png      /usr/share/plymouth/themes/noxis/logo.png
+  put noxis-shell/usr/share/plymouth/themes/noxis/wordmark.png  /usr/share/plymouth/themes/noxis/wordmark.png
+  put noxis-shell/usr/lib/noxis/brand/os-release                /usr/lib/noxis/brand/os-release
+  put noxis-shell/usr/lib/noxis/brand/os-release                /usr/lib/os-release
+  put noxis-shell/etc/xdg/fastfetch/config.jsonc                /etc/xdg/fastfetch/config.jsonc
+  put noxis-shell/usr/share/noxis/fastfetch/logo.txt            /usr/share/noxis/fastfetch/logo.txt
+  put noxis-opsec/usr/share/applications/noxis-guard.desktop    /usr/share/applications/noxis-guard.desktop
+  t=$(mktemp)
+  printf 'Noxis Linux 1.0 \\n \\l\n\n' > "$t"; adb push "$t" "$M/etc/issue" >/dev/null 2>&1
+  printf 'Noxis Linux 1.0\n' > "$t";          adb push "$t" "$M/etc/issue.net" >/dev/null 2>&1
+  rm -f "$t"
+  umount_root
+  ok "$n Dateien: Startlogo, Systemname und fastfetch-Logo sind Noxis Linux"
   ;;
 
 uhr)

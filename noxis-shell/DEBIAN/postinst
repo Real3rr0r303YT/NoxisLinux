@@ -4,7 +4,7 @@ set -e
 
 glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
 
-# Name in Einstellungen/hostnamectl: "Noxis OS – Made by 3rr0r303YT".
+# Name in Einstellungen/hostnamectl: "Noxis Linux – Made by 3rr0r303YT".
 # /usr/lib/os-release gehoert base-files; per dpkg-divert ersetzt, damit ein
 # Update von base-files es nicht zurueckschreibt. ID_LIKE=debian bleibt,
 # sonst erkennen apt-Werkzeuge das System nicht mehr.
@@ -13,8 +13,8 @@ if [ -f /usr/lib/noxis/brand/os-release ]; then
     --divert /usr/lib/os-release.debian /usr/lib/os-release >/dev/null
   cp /usr/lib/noxis/brand/os-release /usr/lib/os-release
   ln -sf ../usr/lib/os-release /etc/os-release
-  printf 'Noxis OS 1.0 \\n \\l\n\n' > /etc/issue
-  printf 'Noxis OS 1.0\n' > /etc/issue.net
+  printf 'Noxis Linux 1.0 \\n \\l\n\n' > /etc/issue
+  printf 'Noxis Linux 1.0\n' > /etc/issue.net
 fi
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
 

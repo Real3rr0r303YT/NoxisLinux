@@ -65,7 +65,7 @@ class Guard(Gtk.ApplicationWindow):
         self.clear()
         self.conf = g.load()
         self.box.append(Gtk.Label(label="Noxis Guard", xalign=0, css_classes=["guard-title"]))
-        self.box.append(Gtk.Label(label="Schutzfunktionen von Noxis OS", xalign=0, css_classes=["guard-sub"]))
+        self.box.append(Gtk.Label(label="Schutzfunktionen von Noxis Linux", xalign=0, css_classes=["guard-sub"]))
         self.status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self.box.append(self.head("Schutzstatus"))
         self.box.append(self.status_box)

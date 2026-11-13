@@ -67,7 +67,7 @@ ROOTFS_TAR="$WORK/rootfs.tar"
 PKG_BASE="systemd-sysv,systemd-resolved,systemd-timesyncd,dbus-user-session,dbus-x11,sudo,locales,tzdata,ca-certificates,curl,gnupg,apt-transport-https,xz-utils,e2fsprogs,cryptsetup,pkexec,polkitd,openssh-server,wireless-regdb"
 PKG_NET="network-manager,modemmanager,wpasupplicant,bluez,nftables,wireguard-tools,usbguard"
 PKG_UI="phosh-core,cage,seatd,xwayland,gir1.2-gtk-4.0,librsvg2-common,wlr-randr,fonts-inter,squeekboard,pipewire,pipewire-pulse,wireplumber,fonts-noto-core,python3,python3-gi"
-PKG_APPS="firefox-esr,firefox-esr-mobile-config,gnome-calls,chatty"
+PKG_APPS="fastfetch,firefox-esr,firefox-esr-mobile-config,gnome-calls,chatty"
 # pentest tools from Debian (Kali-style); NOXIS_PENTEST=0 leaves them out
 PKG_PENTEST="nmap masscan aircrack-ng reaver hcxdumptool hcxtools wifite macchanger tshark wireshark tcpdump bettercap hydra john hashcat sqlmap gobuster ffuf netcat-openbsd socat proxychains4 dnsutils whois binwalk radare2 sslscan dsniff ettercap-text-only podman distrobox"
 PENTEST="${NOXIS_PENTEST:-1}"
@@ -290,6 +290,9 @@ grep -q 'LABEL=noxis-root' /etc/fstab 2>/dev/null || \
 mkdir -p /opt
 tar -xJf /tmp/noxis/tor-browser.tar.xz -C /opt
 mv /opt/tor-browser* /opt/tor-browser 2>/dev/null || true
+# Das Archiv packt den Ordner mit drwx------ aus. Der Starter laeuft als
+# normaler Benutzer, saehe dann nichts und beendete sich stumm.
+chown -R 0:0 /opt/tor-browser; chmod -R a+rX,go-w /opt/tor-browser
 cat > /usr/share/applications/noxis-tor-browser.desktop <<'DESK'
 [Desktop Entry]
 Type=Application
