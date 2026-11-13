@@ -228,7 +228,7 @@ check("PIN-Texte in allen sieben Sprachen", not missing, missing)
 # ---- Benutzername in der Ersteinrichtung
 check("slug: Max Müller → max", nxsetup.slug("Max Müller") == "max")
 check("slug: nichts Brauchbares → leer", nxsetup.slug("123 !!") == "" and nxsetup.slug("root") == "")
-check("Benutzername gueltig", nxsetup.check_username("hakan", "noxis", names={"noxis"}) is None)
+check("Benutzername gueltig", nxsetup.check_username("testname", "noxis", names={"noxis"}) is None)
 check("Benutzername: gleich bleibt erlaubt", nxsetup.check_username("noxis", "noxis", names={"noxis"}) is None)
 check("Benutzername abgelehnt: Grossbuchstaben, root, vergeben",
       nxsetup.check_username("Max", "noxis", names=set()) == "invalid"
@@ -236,9 +236,9 @@ check("Benutzername abgelehnt: Grossbuchstaben, root, vergeben",
       and nxsetup.check_username("anna", "noxis", names={"anna"}) == "taken")
 os.makedirs(os.path.join(TD, "etc/noxis"), exist_ok=True)
 open(os.path.join(TD, "etc/noxis/greeter.conf"), "w").write("[greeter]\nuser = noxis\nshuffle = true\n")
-nxsetup.rename_user("noxis", "hakan", root=TD)
+nxsetup.rename_user("noxis", "testname", root=TD)
 check("rename_user traegt den Namen in greeter.conf ein",
-      "user = hakan" in open(os.path.join(TD, "etc/noxis/greeter.conf")).read())
+      "user = testname" in open(os.path.join(TD, "etc/noxis/greeter.conf")).read())
 try:
     nxsetup.rename_user("noxis", "Bad Name", root=TD); check("rename_user lehnt ungueltige Namen ab", False)
 except ValueError:
