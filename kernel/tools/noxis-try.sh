@@ -55,7 +55,16 @@ ifsnap() {
 
 wait_fastboot() {
   fastboot devices 2>/dev/null | grep -q fastboot && return 0
-  ask "${1:-Handy in den Bootloader: Power lang druecken bis es ausgeht, dann Power + Leiser halten.}"
+  # Ist das Handy per adb erreichbar (Recovery), geht es ohne Tasten: im
+  # Bootloader-Menue wechselt "Leiser" die Auswahl und "Power" bestaetigt --
+  # wer die Tasten zu lange haelt, landet sonst in der Recovery.
+  if adb devices 2>/dev/null | grep -qE 'recovery$|device$'; then
+    c "Handy ist per adb da – schicke es selbst in den Bootloader"
+    adb reboot bootloader >/dev/null 2>&1
+  else
+    ask "${1:-Handy in den Bootloader: Power lang druecken bis es ausgeht, dann Power + Leiser halten.}"
+    ask "Tasten LOSLASSEN, sobald der Bootloader-Bildschirm kommt (sonst waehlt er Recovery)."
+  fi
   local i=0
   until fastboot devices 2>/dev/null | grep -q fastboot; do
     sleep 1; i=$((i + 1))
