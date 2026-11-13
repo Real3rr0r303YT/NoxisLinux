@@ -122,10 +122,15 @@ Other options: `NOXIS_USER=noxis NOXIS_PIN=147147 NOXIS_DEVICE_DEBS=<folder> BOO
 | 2 | Rootfs build: Debian trixie arm64, Phosh + noxis-dm, Tor, Firefox + arkenfox, Waydroid | **done, flow tested** |
 | 3 | Image: `rootfs.img` (ext4) + sparse, SHA-256, auto-cleanup | **done, tested** |
 | 4 | Kernel from `NothingOSS/android_kernel_msm-6.1_nothing_sm7635` + own modules + initramfs → `boot.img` | **script done, config tested, build untested** |
-| 5 | First boot: UFS, USB debug network, systemd | waiting for a device test |
-| 6 | Display/touch/GPU via Qualcomm drivers (msm_drm, kgsl, focaltech) under Phosh | built, waiting for a device test |
+| 5 | First boot: UFS, USB debug network, systemd | **boots on the device**: ext4 root mounted, systemd and journald up |
+| 6 | Display/touch via msm_drm (SDE/DSI) under Phosh | **works**: 1080x2392 at 120 Hz, backlight, touch; GPU is KGSL, so Mesa has no GL driver and wlroots renders with pixman |
 | 7 | Wi-Fi (WCN6750: icnss2 + qcacld-3.0), modem (QRTR, rmtfs, pd-mapper, tqftpserv, ModemManager), Bluetooth (btpower + hci_uart qca) | **built + bring-up written, waiting for a device test** |
 | 8 | Audio (ADSP/AudioReach), calls with audio, GPS | open |
+| 10 | logind session for the user: without it `systemd --user` never starts, so the on-screen keyboard, the network interface and the rest of Phosh's services stay away and gnome-session shows its failure screen every two minutes | **next**: pam_systemd creates no session for the user while it does for the greeter |
+| 11 | Firmware: `firmware_mnt` reachable from the rootfs (IPA asks for `ipa_fws.mdt` and gets -2); Wi-Fi needs the same source | open, blocks phase 7 |
+| 12 | Battery and charging: `qti_battery_charger` loads, but nothing shows in the interface -- and the device may discharge while Noxis runs. Until this is settled, run Noxis on the cable only | open |
+| 13 | Essential Key as a shortcut (screenshot and others) -- it arrives as an input event, so it can be bound once the session is stable | open |
+| 14 | NoxisGuard for Noxis Linux (exists only in Noxis OS so far) | open |
 | 9 | Camera | open (Qualcomm camera stack is Android-only) |
 
 **Why it is hard:** Droidian (Halium/libhybris) supports vendor partitions up to Android 13 (api33); the 3a ships an Android 15 vendor with a GKI kernel.
