@@ -225,6 +225,28 @@ missing = [k for k in ("set_pin", "pin_repeat", "pin_mismatch", "pin_short", "la
            if k not in nxi18n.T or len(nxi18n.T[k]) != len(nxi18n.ORDER)]
 check("PIN-Texte in allen sieben Sprachen", not missing, missing)
 
+# ---- Benutzername in der Ersteinrichtung
+check("slug: Max Müller → max", nxsetup.slug("Max Müller") == "max")
+check("slug: nichts Brauchbares → leer", nxsetup.slug("123 !!") == "" and nxsetup.slug("root") == "")
+check("Benutzername gueltig", nxsetup.check_username("hakan", "noxis", names={"noxis"}) is None)
+check("Benutzername: gleich bleibt erlaubt", nxsetup.check_username("noxis", "noxis", names={"noxis"}) is None)
+check("Benutzername abgelehnt: Grossbuchstaben, root, vergeben",
+      nxsetup.check_username("Max", "noxis", names=set()) == "invalid"
+      and nxsetup.check_username("root", "noxis", names=set()) == "reserved"
+      and nxsetup.check_username("anna", "noxis", names={"anna"}) == "taken")
+os.makedirs(os.path.join(TD, "etc/noxis"), exist_ok=True)
+open(os.path.join(TD, "etc/noxis/greeter.conf"), "w").write("[greeter]\nuser = noxis\nshuffle = true\n")
+nxsetup.rename_user("noxis", "hakan", root=TD)
+check("rename_user traegt den Namen in greeter.conf ein",
+      "user = hakan" in open(os.path.join(TD, "etc/noxis/greeter.conf")).read())
+try:
+    nxsetup.rename_user("noxis", "Bad Name", root=TD); check("rename_user lehnt ungueltige Namen ab", False)
+except ValueError:
+    check("rename_user lehnt ungueltige Namen ab", True)
+missing = [k for k in ("who_title", "your_name", "username", "user_bad")
+           if k not in nxi18n.T or len(nxi18n.T[k]) != len(nxi18n.ORDER)]
+check("Namens-Texte in allen sieben Sprachen", not missing, missing)
+
 # ---- WLAN-Schritt der Ersteinrichtung
 import wifi as nxwifi  # noqa: E402
 scan = nxwifi.parse_scan("*:Heim\\:Netz:80:WPA2\n:Cafe:40:--\n:Heim\\:Netz:30:WPA2\n::70:WPA2\n:Nachbar:90:WPA3\n")

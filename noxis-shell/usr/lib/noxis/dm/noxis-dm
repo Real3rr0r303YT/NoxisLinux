@@ -188,7 +188,7 @@ class Authenticator:
             tz, source, zones = setup.suggest(lang, setup.detect_mcc(), root)
             log(f"setup info: setup-done={setup.is_done(root)} user-done={setup.user_is_done(root)}")
             return {"type": "noxis_setup_info", "needed": not setup.is_done(root),
-                    "user_needed": not setup.user_is_done(root), "suggested": tz,
+                    "user_needed": not setup.user_is_done(root), "user": setup.default_user() or "", "suggested": tz,
                     "source": source, "zones": zones, "all_zones": setup.all_zones(root)}
         if t == "noxis_setup_user":
             # Nur vor dem Abschluss der Ersteinrichtung: danach aendert man die
@@ -200,6 +200,11 @@ class Authenticator:
             if not user:
                 return err("error", "no regular user")
             try:
+                want = req.get("username")
+                if want and want != user:
+                    setup.rename_user(user, want, root)
+                    log(f"setup: user {user} renamed to {want}")
+                    user = want
                 setup.set_user(user, req.get("pin"), req.get("name"), root)
             except (ValueError, RuntimeError, OSError) as e:
                 log(f"setup user: {e}")

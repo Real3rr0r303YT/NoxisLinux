@@ -85,8 +85,10 @@ class Greetd:
     def setup_info(self, lang):
         return self.request({"type": "noxis_setup_info", "lang": lang})
 
-    def setup_user(self, pin=None, name=None):
+    def setup_user(self, pin=None, name=None, username=None):
         msg = {"type": "noxis_setup_user"}
+        if username:
+            msg["username"] = username
         if pin:
             msg["pin"] = pin
         if name:

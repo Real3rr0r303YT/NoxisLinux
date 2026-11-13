@@ -49,6 +49,7 @@ class Greeter(Gtk.ApplicationWindow):
         self.mode = core.default_mode()
         self.setup_data = None
         self.sp_tz, self.sp_first, self.sp_buf = None, None, None
+        self.sp_name, self.sp_user = None, None
 
         self.overlay = Gtk.Overlay()
         self.set_child(self.overlay)
@@ -239,7 +240,7 @@ class Greeter(Gtk.ApplicationWindow):
         if not info.get("needed"):
             # Sprache und Zeitzone standen schon beim Bauen fest -- dann bleibt
             # nur die PIN, und die wird trotzdem abgefragt.
-            self.show_pin_page(None)
+            self.show_name_page(None)
             return False
         self.stack.add_named(self.build_lang_page(), "lang")
         self.stack.set_visible_child_name("lang")
@@ -303,7 +304,7 @@ class Greeter(Gtk.ApplicationWindow):
         if src:
             sug_box.append(Gtk.Label(label=i18n.tr(lang, src), css_classes=["noxis-tz-src"]))
         sug.set_child(sug_box)
-        sug.connect("clicked", lambda *_: self.show_pin_page(self.tz_choice))
+        sug.connect("clicked", lambda *_: self.show_name_page(self.tz_choice))
         page.append(sug)
 
         search = Gtk.SearchEntry(placeholder_text=i18n.tr(lang, "search"))
@@ -318,15 +319,15 @@ class Greeter(Gtk.ApplicationWindow):
         needle = {"q": ""}
         lst.set_filter_func(lambda row: needle["q"] in row.tz.lower().replace("_", " "))
         search.connect("search-changed", lambda e: (needle.__setitem__("q", e.get_text().lower()), lst.invalidate_filter()))
-        lst.connect("row-activated", lambda _l, row: self.show_pin_page(row.tz))
+        lst.connect("row-activated", lambda _l, row: self.show_name_page(row.tz))
         scroller = Gtk.ScrolledWindow(vexpand=True, child=lst)
         page.append(scroller)
 
-        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
+        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, margin_bottom=56)
         back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
         back.connect("clicked", lambda *_: self.stack.set_visible_child_name("lang"))
         nxt = Gtk.Button(label=i18n.tr(lang, "next"), css_classes=["noxis-chip", "noxis-primary"])
-        nxt.connect("clicked", lambda *_: self.show_pin_page(self.selected_tz(lst) or self.tz_choice))
+        nxt.connect("clicked", lambda *_: self.show_name_page(self.selected_tz(lst) or self.tz_choice))
         nav.append(back)
         nav.append(nxt)
         page.append(nav)
@@ -338,6 +339,74 @@ class Greeter(Gtk.ApplicationWindow):
     def selected_tz(lst):
         row = lst.get_selected_row()
         return getattr(row, "tz", None) if row else None
+
+    # ---- Name + Benutzername -----------------------------------------------
+    def show_name_page(self, tz):
+        self.sp_tz = tz
+        old = self.stack.get_child_by_name("name")
+        if old:
+            self.stack.remove(old)
+        self.stack.add_named(self.build_name_page(), "name")
+        self.stack.set_visible_child_name("name")
+
+    def build_name_page(self):
+        lang = self.lang
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, css_classes=["noxis-root", "noxis-setup"])
+        title, _ = icon_label("avatar-default-symbolic", i18n.tr(lang, "who_title"), "noxis-title")
+        page.append(title)
+        cur = (self.setup_data or {}).get("user") or self.user or "noxis"
+        page.append(Gtk.Label(label=i18n.tr(lang, "your_name"), xalign=0, css_classes=["noxis-subtitle"]))
+        e_name = Gtk.Entry(text=self.sp_name or "")
+        page.append(e_name)
+        page.append(Gtk.Label(label=i18n.tr(lang, "username"), xalign=0, css_classes=["noxis-subtitle"]))
+        e_user = Gtk.Entry(text=self.sp_user or cur)
+        page.append(e_user)
+        self.name_msg = Gtk.Label(label=" ", css_classes=["noxis-msg"], wrap=True)
+        page.append(self.name_msg)
+        st = {"target": e_name, "auto": self.sp_user is None}
+
+        def slug(text):
+            first = text.strip().lower().split(" ")[0] if text.strip() else ""
+            out = "".join(c for c in first if c.isascii() and (c.isalnum() or c in "_-")).lstrip("0123456789-")
+            return out[:32]
+
+        class Proxy:   # die Bildschirmtastatur schreibt ins zuletzt angetippte Feld
+            def get_text(self_):
+                return st["target"].get_text()
+
+            def set_text(self_, t):
+                if st["target"] is e_user:
+                    st["auto"] = False
+                    t = t.lower().replace(" ", "")
+                st["target"].set_text(t)
+                if st["target"] is e_name and st["auto"]:
+                    e_user.set_text(slug(t) or cur)
+
+            def set_position(self_, pos):
+                st["target"].set_position(pos)
+
+        for e in (e_name, e_user):
+            fc = Gtk.EventControllerFocus()
+            fc.connect("enter", lambda _c, w=e: st.__setitem__("target", w))
+            e.add_controller(fc)
+
+        def go():
+            name, user = e_name.get_text().strip(), e_user.get_text().strip()
+            import re
+            if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user) or any(c in name for c in ":\n\r") or len(name) > 64:
+                self.name_msg.set_label(i18n.tr(self.lang, "user_bad"))
+                return
+            self.sp_name, self.sp_user = (name or None), user
+            self.show_pin_page(self.sp_tz)
+
+        page.append(self.build_osk(Proxy(), go, ok_label=i18n.tr(lang, "next")))
+        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, margin_bottom=56)
+        if self.sp_tz is not None:
+            back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
+            back.connect("clicked", lambda *_: self.stack.set_visible_child_name("tz"))
+            nav.append(back)
+        page.append(nav)
+        return page
 
     # ---- eigene PIN festlegen (zwei Durchgaenge) -----------------------
     # Hier kein gemischtes Zahlenfeld: beim Festlegen hilft die gewohnte
@@ -378,11 +447,10 @@ class Greeter(Gtk.ApplicationWindow):
                 b.connect("clicked", lambda _b, d=k: self.sp_digit(d))
             grid.attach(b, i % 3, i // 3, 1, 1)
         page.append(grid)
-        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
-        if self.sp_tz is not None:
-            back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
-            back.connect("clicked", lambda *_: self.stack.set_visible_child_name("tz"))
-            nav.append(back)
+        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, margin_bottom=56)
+        back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
+        back.connect("clicked", lambda *_: self.stack.set_visible_child_name("name"))
+        nav.append(back)
         # Kein "Später": eine im Quelltext nachlesbare Standard-PIN, die in jedem
         # ausgelieferten Image dieselbe ist, waere keine PIN. Scheitert das
         # Setzen, bleibt die bisherige gueltig und man kann es erneut versuchen.
@@ -433,7 +501,7 @@ class Greeter(Gtk.ApplicationWindow):
                     # danach nimmt der Display-Manager keine PIN mehr an.
                     ok, detail = True, ""
                     if pin:
-                        ok, detail = g.setup_user(pin=pin)
+                        ok, detail = g.setup_user(pin=pin, name=self.sp_name, username=self.sp_user)
                     if ok and tz:
                         ok, detail = g.setup(self.lang, tz)
                 finally:
@@ -451,6 +519,8 @@ class Greeter(Gtk.ApplicationWindow):
         if tz:
             os.environ["TZ"] = f":/usr/share/zoneinfo/{tz}"
             time.tzset()
+        self.conf = core.load_conf()
+        self.user = core.pick_user(self.conf)      # nach dem Umbenennen neu bestimmen
         self.apply_texts()
         self.show_wifi_page()
         return False
@@ -486,7 +556,7 @@ class Greeter(Gtk.ApplicationWindow):
         self.wifi_inner.add_named(pw, "password")
         page.append(self.wifi_inner)
 
-        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
+        nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, margin_bottom=56)
         self.wifi_back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"], visible=False)
         self.wifi_back.connect("clicked", lambda *_: self.wifi_show_list())
         rescan = Gtk.Button(label=i18n.tr(lang, "rescan"), css_classes=["noxis-chip"])
@@ -595,7 +665,7 @@ class Greeter(Gtk.ApplicationWindow):
         return False
 
     # Bildschirmtastatur: im Greeter (cage) laeuft kein squeekboard.
-    def build_osk(self, entry, on_enter):
+    def build_osk(self, entry, on_enter, ok_label=None):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["noxis-osk"])
         st = {"shift": False, "sym": False}
         top = "qwertzuiop" if self.lang == "de" else "qwertyuiop"
@@ -641,7 +711,7 @@ class Greeter(Gtk.ApplicationWindow):
             sp = Gtk.Button(label=" ", hexpand=True, css_classes=["noxis-osk-key"])
             sp.connect("clicked", lambda *_: put(" "))
             last.append(sp)
-            ok = Gtk.Button(label=i18n.tr(self.lang, "connect"), css_classes=["noxis-osk-key", "noxis-primary"])
+            ok = Gtk.Button(label=ok_label or i18n.tr(self.lang, "connect"), css_classes=["noxis-osk-key", "noxis-primary"])
             ok.connect("clicked", lambda *_: on_enter())
             last.append(ok)
             box.append(last)

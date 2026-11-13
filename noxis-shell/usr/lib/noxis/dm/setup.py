@@ -135,6 +135,61 @@ def check_pin(pin):
     return None
 
 
+RESERVED = {"root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy",
+            "www-data", "backup", "list", "irc", "nobody", "systemd-network", "messagebus", "noxis-greeter",
+            "sudo", "adm", "admin", "video", "audio", "render", "input", "tty", "disk", "shadow", "users"}
+
+
+def slug(name):
+    """Anzeigename → Vorschlag fuer den Benutzernamen ("Max Müller" → "max")."""
+    tr = {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "ç": "c", "ğ": "g", "ı": "i", "ş": "s", "é": "e", "è": "e"}
+    first = (name or "").strip().lower().split(" ")[0] if (name or "").strip() else ""
+    out = "".join(tr.get(ch, ch) for ch in first)
+    out = re.sub(r"[^a-z0-9_-]", "", out).lstrip("0123456789-")[:32]
+    return out if out and USER_RE.match(out) and out not in RESERVED else ""
+
+
+def check_username(new, current=None, names=None):
+    """→ Fehlertext oder None."""
+    if not isinstance(new, str) or not USER_RE.match(new):
+        return "invalid"
+    if new == current:
+        return None
+    if new in RESERVED:
+        return "reserved"
+    if names is None:
+        pw, gr = __import__("pwd"), __import__("grp")
+        names = {e.pw_name for e in pw.getpwall()} | {e.gr_name for e in gr.getgrall()}
+    return "taken" if new in names else None
+
+
+def rename_user(old, new, root="/", greeter_conf="etc/noxis/greeter.conf"):
+    """Benutzer samt Gruppe und Home umbenennen (nur vor der ersten Anmeldung)."""
+    bad = check_username(new, old) if root == "/" else check_username(new, old, names=set())
+    if bad:
+        raise ValueError(f"invalid username: {bad}")
+    if new == old:
+        return
+    if root == "/":
+        try:
+            r = subprocess.run(["usermod", "-l", new, "-d", f"/home/{new}", "-m", old],
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode != 0:
+                raise RuntimeError((r.stderr or "usermod failed").strip().splitlines()[-1])
+            subprocess.run(["groupmod", "-n", new, old], capture_output=True, timeout=30)
+        except subprocess.SubprocessError as e:
+            raise RuntimeError(str(e)) from e
+    gc = os.path.join(root, greeter_conf)
+    try:
+        with open(gc) as f:
+            txt = f.read()
+        txt2 = re.sub(r"(?m)^user\s*=.*$", f"user = {new}", txt)
+        if txt2 != txt:
+            _write(gc, txt2)
+    except OSError:
+        pass
+
+
 def default_user(passwd=None):
     """Erster regulaerer Benutzer: uid >= 1000 mit echter Shell.
 
