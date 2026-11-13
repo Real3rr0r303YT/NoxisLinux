@@ -131,6 +131,12 @@ echo; c "=== Display / DRM ==="
 grep -anE "msm_drm|sde_|dsi|panel|drm" "$log" | tail -15
 echo; c "=== USB / dwc3 ==="
 grep -anE "dwc3|UDC|hsphy" "$log" | tail -10
+echo; c "=== WLAN (icnss2 / qca_cld3) ==="
+grep -anE "icnss|qca_cld|wlan_firmware|cnss" "$log" | tail -25 || echo "  (nichts)"
+echo; c "=== Spannungsregler / PMIC ==="
+# Der Sendeteil des WLAN-Moduls haengt an eigenen Reglern. Fehlen die, sieht
+# man alle Netze und die eigene Anmeldung verlaesst das Geraet nie.
+grep -anE "regulator|pm3001|_s1j|spmi|pinctrl.*fail|probe deferral|deferred" "$log" | tail -20 || echo "  (nichts)"
 echo; c "=== Panic / Fehler ==="
 grep -anE "Kernel panic|not syncing|Unable to mount|Unknown symbol" "$log" | tail -10
 echo; ok "Vollstaendiges Log: $log"
