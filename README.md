@@ -131,6 +131,7 @@ Other options: `NOXIS_USER=noxis NOXIS_PIN=147147 NOXIS_DEVICE_DEBS=<folder> BOO
 | 12 | Battery and charging: `qti_battery_charger` loads, but nothing shows in the interface -- and the device may discharge while Noxis runs. Until this is settled, run Noxis on the cable only | open |
 | 13 | Essential Key as a shortcut (screenshot and others) -- it arrives as an input event, so it can be bound once the session is stable | open |
 | 14 | NoxisGuard for Noxis Linux (exists only in Noxis OS so far) | open |
+| 15 | Dual slot without a PC: slot A keeps the stock boot chain (recovery reachable), slot B carries Noxis (boot_b, init_boot_b, vbmeta_b relaxed), userdata is shared. Recovery → Noxis by switching to B in OrangeFox; Noxis → recovery needs `qbootctl` in the rootfs and a "restart into recovery" action. Firmware mounts follow the slot suffix, so modem_b/dsp_b must be populated | planned |
 | 9 | Camera | open (Qualcomm camera stack is Android-only) |
 
 **Why it is hard:** Droidian (Halium/libhybris) supports vendor partitions up to Android 13 (api33); the 3a ships an Android 15 vendor with a GKI kernel.
