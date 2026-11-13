@@ -673,8 +673,14 @@ mullvad-gui)
   adb push "$t" "$d/$src" >/dev/null 2>&1 && adb shell "chmod 644 $d/$src" \
     && echo "  ok Starter: $(grep -m1 '^Exec=' "$t")"
   rm -f "$t"
+  # Der Teststart sagt es woertlich: "chrome-sandbox ... is owned by root and
+  # has mode 4755". Das setuid-Bit ging beim Bau des Rootfs verloren, und
+  # Electron bricht dann lieber ab, als ohne Sandbox zu laufen.
+  sb="$M/opt/Mullvad VPN/chrome-sandbox"
+  adb shell "chown 0:0 '$sb' && chmod 4755 '$sb'" 2>&1 | sed '/^$/d;s/^/    /'
+  echo "  Sandbox: $(adb shell "ls -ln '$sb'" 2>/dev/null | tr -d '\r' | cut -c1-24)"
   umount_root
-  ok "Mullvad-Starter fuer Wayland abgelegt"
+  ok "Mullvad-Starter fuer Wayland abgelegt, Sandbox-Rechte gesetzt"
   ;;
 
 nosae)

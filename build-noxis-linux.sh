@@ -389,6 +389,9 @@ mkdir -p /etc/systemd/timesyncd.conf.d
 printf '[Time]\nFallbackNTP=162.159.200.1 162.159.200.123 time.cloudflare.com\n' > /etc/systemd/timesyncd.conf.d/90-noxis.conf
 touch /usr/lib/clock-epoch
 
+# Mullvad-Oberflaeche: ohne setuid-Sandbox bricht Electron sofort ab
+# ("chrome-sandbox ... owned by root and has mode 4755")
+[ -f "/opt/Mullvad VPN/chrome-sandbox" ] && { chown 0:0 "/opt/Mullvad VPN/chrome-sandbox"; chmod 4755 "/opt/Mullvad VPN/chrome-sandbox"; } || true
 # Mullvad-Oberflaeche: Electron sucht sonst einen X-Server, Phosh hat nur Wayland
 for f in /usr/share/applications/mullvad-vpn.desktop; do
   [ -f "\$f" ] || continue
