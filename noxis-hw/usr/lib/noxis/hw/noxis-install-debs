@@ -8,7 +8,13 @@ set -u
 D=/var/cache/noxis-debs
 ls "$D"/*.deb >/dev/null 2>&1 || exit 0
 echo "noxis-install-debs: $(ls "$D" | tr '\n' ' ')"
-if dpkg -i "$D"/*.deb; then
+# --skip-same-version ist hier wichtig, nicht nur sparsam: beim Herunterladen
+# im Container kommen Abhaengigkeiten mit, die auf dem Handy laengst in genau
+# dieser Fassung liegen – systemd und dbus zum Beispiel. Ohne den Schalter
+# wuerden deren postinst-Skripte mitten im Startvorgang laufen und Dienste
+# durchstarten, die gerade erst hochkommen. Installiert wird also nur, was
+# wirklich fehlt oder neuer ist.
+if dpkg -i --skip-same-version "$D"/*.deb; then
   echo "noxis-install-debs: ok"
 else
   echo "noxis-install-debs: dpkg meldet Fehler (fehlende Abhaengigkeiten?)"
