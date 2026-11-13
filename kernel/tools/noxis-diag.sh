@@ -107,6 +107,9 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   echo "--- firmware_class.path ---"; cat /sys/module/firmware_class/parameters/path 2>&1
   echo "--- remoteproc ---"
   for r in /sys/class/remoteproc/remoteproc*; do echo "  $(cat $r/name 2>/dev/null): firmware=$(cat $r/firmware 2>/dev/null) modalias=$(cat $r/device/modalias 2>/dev/null)"; done
+  echo "--- uio (rmtfs) ---"
+  for u in /sys/class/uio/uio*; do echo "  $(basename $u): $(cat $u/name 2>/dev/null)"; done; ls -la /dev/qcom_rmtfs* 2>&1
+  echo "--- Touch ---"; grep -c fts_input_report /dev/null; dmesg | grep -aE "fts_panel_notifier|FTS_TS/E|fts_ts_suspend|fts_ts_resume" | tail -8
   echo "--- pd-mapper .jsn ---"
   ls -la /lib/firmware/ 2>/dev/null | grep -i jsn
   ls /vendor/firmware_mnt/image /vendor/firmware /vendor/dsp 2>/dev/null | grep -i jsn
@@ -212,6 +215,7 @@ shell)
       noxis-hw/etc/systemd/system/rmtfs.service.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/pd-mapper.service.d/90-noxis.conf \
       noxis-hw/usr/lib/udev/rules.d/70-noxis-gpu.rules \
+      noxis-hw/usr/lib/udev/rules.d/65-noxis-rmtfs.rules \
       noxis-hw/usr/lib/noxis/hw/noxis-firmware-links \
       noxis-hw/usr/lib/noxis/hw/noxis-radios
   do
