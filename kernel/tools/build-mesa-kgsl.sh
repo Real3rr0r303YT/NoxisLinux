@@ -7,7 +7,7 @@
 # Warum: der Kernel benutzt Qualcomms KGSL fuer die GPU. Debians Mesa spricht
 # nur mit dem Mainline-msm-Treiber, deshalb gibt es kein GL und die Oberflaeche
 # rendert in Software. Mesas Vulkan-Treiber "turnip" hat ein KGSL-Backend
-# (-Dfreedreno-kmds=kgsl), dazu zink fuer GL ueber Vulkan.
+# (-Dfreedreno-kmds=kgsl). Dieser Build: nur Vulkan, als Test.
 #
 # Offen und erst auf dem Geraet zu klaeren: ob turnip die Adreno-GPU des
 # SM7635 kennt, und ob ein Compositor damit rendern kann.
@@ -35,9 +35,13 @@ sudo docker run --rm --platform linux/arm64 -v "$OUT:/out" -e REF="$REF" debian:
   git clone -q --depth 1 --branch "$REF" https://gitlab.freedesktop.org/mesa/mesa.git /src
   cd /src
   echo "[mesa] Stand: $(git log -1 --format=%h\ %s)"
+  # Erster Schritt nur Vulkan: die Frage ist, ob turnip die GPU ueber KGSL
+  # erkennt. GBM/EGL/GL (zink) kommen danach -- aktuelles Mesa verweigert GBM
+  # ohne einen Gallium-Treiber mit KMS ("GBM only supports DRM/KMS platforms").
   meson setup build --prefix=/opt/mesa-kgsl --buildtype=release \
-    -Dplatforms=wayland -Dglx=disabled -Dgbm=enabled -Degl=enabled -Dgles1=disabled -Dgles2=enabled \
-    -Dgallium-drivers=zink -Dvulkan-drivers=freedreno -Dfreedreno-kmds=kgsl \
+    -Dplatforms=wayland -Dglx=disabled -Dgbm=disabled -Degl=disabled -Dopengl=false \
+    -Dgles1=disabled -Dgles2=disabled -Dgallium-drivers= \
+    -Dvulkan-drivers=freedreno -Dfreedreno-kmds=kgsl \
     -Dllvm=disabled -Dvalgrind=disabled -Dlibunwind=disabled -Dzstd=enabled >/out/mesa-meson.log 2>&1 \
     || { tail -40 /out/mesa-meson.log; exit 1; }
   ninja -C build >/out/mesa-build.log 2>&1 || { tail -40 /out/mesa-build.log; exit 1; }
