@@ -2,12 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Noxis Linux – Made by 3rr0r303YT on TikTok
 # https://github.com/Real3rr0r303YT/NoxisLinux
-# Noxis Linux – ein Boot-Versuch: bauen (optional), flashen, starten, und bei
-# Fehlschlag das pstore-Log holen und auswerten.
+# Noxis Linux – ein Boot-Versuch: bauen (optional), flashen, starten. Das Log
+# des letzten Starts holt "--log" getrennt davon.
 #
-#   ./noxis-try.sh            flashen + starten + Log
+#   ./noxis-try.sh            flashen + starten (wartet nicht mehr)
 #   ./noxis-try.sh --build    vorher initramfs + boot.img neu bauen
 #   ./noxis-try.sh --restore  nur Stock wiederherstellen (Recovery erreichbar)
+#   ./noxis-try.sh --log      Stock zurueck, Recovery, pstore-Log des letzten
+#                             Starts holen und auswerten
+#
+# Frueher wartete der normale Aufruf 150 Sekunden auf ein USB-Interface und
+# holte danach von sich aus das Log. Das normale Noxis bringt aber gar kein
+# USB-Netz hoch – nur der Rescue tut das. Also landete jeder erfolgreiche
+# Start im Fehlschlag-Zweig, und man musste zweieinhalb Minuten warten, nur um
+# abzubrechen. Darum jetzt getrennt.
 #
 # Zwei Dinge, die dieses Gerät verlangt und die hart erarbeitet sind:
 #
@@ -97,6 +105,42 @@ restore_stock() {
   ok "Stock wiederhergestellt"
 }
 
+# ----------------------------------------------------------- Log holen
+# Erreichbar als "--log" (siehe oben) – holt den Konsolenpuffer des letzten
+# Starts aus dem pstore. Der ueberlebt genau EINEN Neustart: zwischen dem
+# schwarzen Bildschirm und diesem Aufruf darf nichts anderes dazwischen booten.
+cmd_log() {
+restore_stock
+c "Recovery starten"
+fastboot reboot recovery >/dev/null 2>&1
+ask "Falls die Recovery nach dem Entschluesselungs-Passwort fragt: abbrechen."
+wait_adb
+
+log="$BK/noxis-$(date +%H%M%S).log"
+adb shell 'cat /sys/fs/pstore/console-ramoops-0' > "$log" 2>/dev/null
+[ -s "$log" ] || die "pstore leer"
+
+kv=$(grep -am1 "Linux version" "$log" | sed 's/.*Linux version \([^ ]*\).*/\1/')
+echo; c "Kernel im Log: $kv"
+case "$kv" in
+  *android14*) warn "Stock-Kernel – falscher Durchlauf erwischt. Zwischen Fehlschlag und Recovery darf nur EIN Boot liegen." ;;
+esac
+echo; c "=== noxis-init ==="
+grep -an "noxis-init:" "$log" | tail -20
+echo; c "=== Display / DRM ==="
+grep -anE "msm_drm|sde_|dsi|panel|drm" "$log" | tail -15
+echo; c "=== USB / dwc3 ==="
+grep -anE "dwc3|UDC|hsphy" "$log" | tail -10
+echo; c "=== Panic / Fehler ==="
+grep -anE "Kernel panic|not syncing|Unable to mount|Unknown symbol" "$log" | tail -10
+echo; ok "Vollstaendiges Log: $log"
+}
+
+if [ "${1:-}" = "--log" ]; then
+  cmd_log
+  exit 0
+fi
+
 if [ "${1:-}" = "--restore" ]; then
   restore_stock
   c "Recovery starten"
@@ -158,49 +202,36 @@ c "starten"
 fastboot reboot recovery >/dev/null 2>&1
 ok "gestartet – schau aufs Display. Ich warte 150 Sekunden auf ein Netzwerk-Interface."
 
+# Frueher wurde hier 150 Sekunden auf ein USB-Interface gewartet und bei
+# Ausbleiben automatisch das Log geholt. Das passte nur zum Rescue: das
+# normale Noxis bringt von sich aus kein USB-Netz hoch, also landete jeder
+# erfolgreiche Start im Fehlschlag-Zweig – und man musste 150 Sekunden
+# warten, um das abzubrechen. Jetzt nur noch ein kurzer Blick, ob der Rescue
+# antwortet; danach ist Schluss. Das Log holt "--log" gezielt.
 iface=""
-for i in $(seq 1 150); do
+for i in $(seq 1 12); do
   sleep 1
   new=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$(ifsnap)") | head -n1)
   [ -n "$new" ] && { iface="$new"; break; }
-  [ $((i % 30)) -eq 0 ] && c "… noch kein Interface (${i}s)"
 done
 
 if [ -n "$iface" ]; then
-  ok "Interface $iface aufgetaucht"
+  ok "Interface $iface aufgetaucht (Rescue oder noxis-usbnet)"
   sudo ip link set "$iface" up
   sudo ip addr add 172.16.42.2/24 dev "$iface" 2>/dev/null
   sleep 2
   ping -c2 -W2 172.16.42.1 >/dev/null 2>&1 && ok "Handy antwortet auf 172.16.42.1" || warn "kein Ping"
-  echo; ok "Verbinden mit:  telnet 172.16.42.1"
+  echo; c "Shell ins laufende Noxis:  kernel/tools/noxis-shell.sh"
+  c "Shell im Rescue:           kernel/tools/noxis-rescue.sh"
   exit 0
 fi
 
-ask "Kein Interface. Falls auf dem Display etwas laeuft, brich hier ab (Strg+C) – sonst hole ich das Log."
-sleep 10
-
-# ----------------------------------------------------------- Fehlschlag: Log
-restore_stock
-c "Recovery starten"
-fastboot reboot recovery >/dev/null 2>&1
-ask "Falls die Recovery nach dem Entschluesselungs-Passwort fragt: abbrechen."
-wait_adb
-
-log="$BK/noxis-$(date +%H%M%S).log"
-adb shell 'cat /sys/fs/pstore/console-ramoops-0' > "$log" 2>/dev/null
-[ -s "$log" ] || die "pstore leer"
-
-kv=$(grep -am1 "Linux version" "$log" | sed 's/.*Linux version \([^ ]*\).*/\1/')
-echo; c "Kernel im Log: $kv"
-case "$kv" in
-  *android14*) warn "Stock-Kernel – falscher Durchlauf erwischt. Zwischen Fehlschlag und Recovery darf nur EIN Boot liegen." ;;
-esac
-echo; c "=== noxis-init ==="
-grep -an "noxis-init:" "$log" | tail -20
-echo; c "=== Display / DRM ==="
-grep -anE "msm_drm|sde_|dsi|panel|drm" "$log" | tail -15
-echo; c "=== USB / dwc3 ==="
-grep -anE "dwc3|UDC|hsphy" "$log" | tail -10
-echo; c "=== Panic / Fehler ==="
-grep -anE "Kernel panic|not syncing|Unable to mount|Unknown symbol" "$log" | tail -10
-echo; ok "Vollstaendiges Log: $log"
+echo
+ok "Geflasht und gestartet – schau aufs Display."
+c "Der erste Start dauert ein bis drei Minuten (resize2fs + systemd)."
+echo
+c "Bleibt der Bildschirm schwarz, das Log des Starts holen:"
+c "    kernel/tools/noxis-try.sh --log"
+c "Laeuft Noxis und noxis-usbnet ist eingerichtet:"
+c "    kernel/tools/noxis-shell.sh"
+exit 0
