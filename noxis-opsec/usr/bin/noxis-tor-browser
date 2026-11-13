@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# Tor Browser startet nur aus einem beschreibbaren Ordner (Profil und Tor-Daten
+# liegen im Programmordner). /opt/tor-browser gehoert root, deshalb blieb der
+# Start stumm. Hier: eigene Kopie pro Benutzer, neu kopiert nach Updates.
+set -eu
+SRC=${NOXIS_TOR_SRC:-/opt/tor-browser}
+DST="${XDG_DATA_HOME:-$HOME/.local/share}/noxis/tor-browser"
+[ -x "$SRC/Browser/start-tor-browser" ] || { echo "Tor Browser fehlt in $SRC" >&2; exit 1; }
+ver() { cat "$1/Browser/tbb_version.json" 2>/dev/null || ls -l --time-style=+%s "$1/Browser/firefox" 2>/dev/null; }
+if [ ! -x "$DST/Browser/start-tor-browser" ] || [ "$(ver "$SRC")" != "$(cat "$DST/.noxis-src" 2>/dev/null)" ]; then
+  # Lesezeichen und Einstellungen behalten, Programm erneuern
+  keep=""
+  if [ -d "$DST/Browser/TorBrowser/Data" ]; then
+    keep=$(mktemp -d); cp -a "$DST/Browser/TorBrowser/Data" "$keep/"
+  fi
+  rm -rf "$DST"; mkdir -p "$(dirname "$DST")"
+  cp -a "$SRC" "$DST"
+  if [ -n "$keep" ]; then rm -rf "$DST/Browser/TorBrowser/Data"; mkdir -p "$DST/Browser/TorBrowser"; mv "$keep/Data" "$DST/Browser/TorBrowser/"; rmdir "$keep"; fi
+  ver "$SRC" > "$DST/.noxis-src"
+fi
+# Ohne X11 (nur Wayland/Phosh) braucht der Browser Wayland ausdruecklich.
+[ -n "${WAYLAND_DISPLAY:-}" ] && export MOZ_ENABLE_WAYLAND=1
+exec "$DST/Browser/start-tor-browser" --detach "$@"

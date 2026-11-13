@@ -82,5 +82,30 @@ for f in ("usr/bin/noxis-guard", "usr/lib/noxis/guard/noxis-guard-helper", "usr/
     check(f"{f}: Syntax, ausfuehrbar, Lizenz + Credit",
           ok and os.access(p, os.X_OK) and "GPL-3.0" in src and "3rr0r303YT" in src)
 
+# ---- Tor-Browser-Starter: Kopie pro Benutzer, Daten bleiben bei Updates
+import subprocess  # noqa: E402
+t = tempfile.mkdtemp()
+src = os.path.join(t, "src/Browser"); os.makedirs(src)
+with open(os.path.join(src, "start-tor-browser"), "w") as f:
+    f.write("#!/bin/sh\necho started\n")
+os.chmod(os.path.join(src, "start-tor-browser"), 0o755)
+open(os.path.join(src, "tbb_version.json"), "w").write("v1")
+env = dict(os.environ, HOME=os.path.join(t, "h"), NOXIS_TOR_SRC=os.path.join(t, "src"))
+env.pop("XDG_DATA_HOME", None)
+launcher = os.path.join(ROOT, "noxis-opsec/usr/bin/noxis-tor-browser")
+r = subprocess.run(["sh", launcher], env=env, capture_output=True, text=True)
+dst = os.path.join(t, "h/.local/share/noxis/tor-browser")
+check("Tor Browser startet aus beschreibbarer Kopie", r.stdout.strip() == "started" and os.path.isdir(dst), r.stderr)
+os.makedirs(os.path.join(dst, "Browser/TorBrowser/Data"))
+open(os.path.join(dst, "Browser/TorBrowser/Data/x"), "w").write("lesezeichen")
+open(os.path.join(src, "tbb_version.json"), "w").write("v2")
+subprocess.run(["sh", launcher], env=env, capture_output=True)
+check("Update behaelt Profil/Lesezeichen",
+      open(os.path.join(dst, "Browser/TorBrowser/Data/x")).read() == "lesezeichen"
+      and open(os.path.join(dst, ".noxis-src")).read().strip() == "v2")
+b = open(os.path.join(ROOT, "build-noxis-linux.sh")).read()
+check("Firefox-Mobilpaket hat den Debian-Namen", "firefox-esr-mobile-config" in b and "mobile-config-firefox" not in b)
+check("Tor-Starter im Desktop-Eintrag, xwayland im Rootfs", "Exec=noxis-tor-browser" in b and "xwayland" in b)
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

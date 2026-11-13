@@ -63,12 +63,12 @@ ROOTFS_TAR="$WORK/rootfs.tar"
 # rootfs packages ----------------------------------------------------------
 PKG_BASE="systemd-sysv,systemd-resolved,systemd-timesyncd,dbus-user-session,dbus-x11,sudo,locales,tzdata,ca-certificates,curl,gnupg,apt-transport-https,xz-utils,e2fsprogs,cryptsetup"
 PKG_NET="network-manager,modemmanager,wpasupplicant,bluez,nftables,wireguard-tools,usbguard"
-PKG_UI="phosh-core,cage,seatd,gir1.2-gtk-4.0,librsvg2-common,wlr-randr,fonts-inter,squeekboard,pipewire,pipewire-pulse,wireplumber,fonts-noto-core,python3,python3-gi"
-PKG_APPS="firefox-esr,gnome-calls,chatty"
+PKG_UI="phosh-core,cage,seatd,xwayland,gir1.2-gtk-4.0,librsvg2-common,wlr-randr,fonts-inter,squeekboard,pipewire,pipewire-pulse,wireplumber,fonts-noto-core,python3,python3-gi"
+PKG_APPS="firefox-esr,firefox-esr-mobile-config,gnome-calls,chatty"
 # pentest tools from Debian (Kali-style); NOXIS_PENTEST=0 leaves them out
 PKG_PENTEST="nmap masscan aircrack-ng reaver hcxdumptool hcxtools wifite macchanger tshark wireshark tcpdump bettercap hydra john hashcat sqlmap gobuster ffuf netcat-openbsd socat proxychains4 dnsutils whois binwalk radare2 sslscan dsniff ettercap-text-only podman distrobox"
 PENTEST="${NOXIS_PENTEST:-1}"
-PKG_OPTIONAL="mobile-config-firefox waydroid kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs protection-domain-mapper tqftpserv qbootctl qrtr-tools bluez-tools"
+PKG_OPTIONAL="waydroid kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs protection-domain-mapper tqftpserv qbootctl qrtr-tools bluez-tools"
 
 # ------------------------------------------------------------ language + time zone
 LANG_CODES=(de tr en fr bg ru uk)
@@ -288,7 +288,7 @@ cat > /usr/share/applications/noxis-tor-browser.desktop <<'DESK'
 [Desktop Entry]
 Type=Application
 Name=Tor Browser
-Exec=sh -c '"/opt/tor-browser/Browser/start-tor-browser" --detach'
+Exec=noxis-tor-browser
 Icon=/opt/tor-browser/Browser/browser/chrome/icons/default/default128.png
 Categories=Network;WebBrowser;Security;
 X-Purism-FormFactor=Workstation;Mobile;
