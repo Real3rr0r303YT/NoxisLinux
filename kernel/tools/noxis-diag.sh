@@ -12,6 +12,9 @@
 #   ./noxis-diag.sh gpu       Mesa mit Turnip-KGSL nach /opt/mesa-kgsl (experimentell)
 #   ./noxis-diag.sh seatd     seatd.service aktivieren und die Benutzer in die
 #                             Gruppe _seatd aufnehmen
+#   ./noxis-diag.sh debs      fehlende Debian-Pakete (pd-mapper, dbus-x11) per
+#                             Docker holen; das Handy installiert sie beim
+#                             naechsten Boot selbst (dpkg laeuft dort nativ)
 #
 # Warum nicht das Journal: noxis-opsec setzt Storage=volatile, das Journal
 # liegt also nur im RAM und ist nach dem Ausschalten weg. Und der
@@ -105,7 +108,7 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   echo "--- remoteproc ---"
   for r in /sys/class/remoteproc/remoteproc*; do echo "  $(cat $r/name 2>/dev/null): $(cat $r/state 2>/dev/null)"; done
   echo "--- Hardware-Dienste ---"
-  systemctl --no-pager -n 15 status noxis-firmware-links noxis-radios rmtfs pd-mapper tqftpserv 2>&1 | head -70
+  systemctl --no-pager -n 15 status noxis-install-debs noxis-firmware-links noxis-radios rmtfs pd-mapper tqftpserv 2>&1 | head -90; journalctl -b --no-pager -u rmtfs -u pd-mapper -u noxis-install-debs -u noxis-radios 2>&1 | tail -40
 } > "$d/system.log" 2>&1
 { echo "--- KGSL ---"; ls -la /dev/kgsl* /dev/dma_heap 2>&1
   if [ -d /opt/mesa-kgsl ]; then
@@ -201,6 +204,7 @@ shell)
       noxis-shell/etc/pam.d/noxis-greeter \
       noxis-hw/etc/systemd/logind.conf.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/upower.service.d/90-noxis.conf \
+      noxis-hw/etc/systemd/system/rmtfs.service.d/90-noxis.conf \
       noxis-hw/usr/lib/udev/rules.d/70-noxis-gpu.rules \
       noxis-hw/usr/lib/noxis/hw/noxis-firmware-links \
       noxis-hw/usr/lib/noxis/hw/noxis-radios
@@ -254,6 +258,38 @@ gpu)
   adb shell "rm -rf $M/opt/mesa-kgsl; mkdir -p $M/opt && tar -xzf /tmp/mesa-kgsl.tar.gz -C $M/opt && rm /tmp/mesa-kgsl.tar.gz" \
     || die "entpacken fehlgeschlagen"
   ok "Mesa (turnip-kgsl) nach /opt/mesa-kgsl – der Diagnose-Haken testet es mit vulkaninfo"
+  umount_root
+  ;;
+
+debs)
+  # Pakete, die im installierten Rootfs fehlen. Ohne Neubau: Docker (arm64)
+  # laedt die .deb-Dateien, der Boot-Dienst noxis-install-debs installiert
+  # sie auf dem Handy mit dpkg und loescht sie danach.
+  PKGS="${NOXIS_DEBS:-protection-domain-mapper dbus-x11}"
+  cache="$HOME/noxis-backup/debs"
+  mkdir -p "$cache"
+  if ! ls "$cache"/*.deb >/dev/null 2>&1; then
+    command -v docker >/dev/null || die "docker fehlt"
+    c "lade $PKGS (arm64) …"
+    docker run --rm --platform linux/arm64 -v "$cache:/out" debian:trixie sh -c \
+      "apt-get update -qq && cd /out && apt-get download -q $PKGS && chmod 644 /out/*.deb" \
+      || die "Download fehlgeschlagen"
+  fi
+  ls "$cache"/*.deb | sed 's|.*/|  |'
+  need_recovery; mount_root
+  adb shell "mkdir -p $M/var/cache/noxis-debs" >/dev/null 2>&1
+  for f in "$cache"/*.deb; do
+    adb push "$f" "$M/var/cache/noxis-debs/" >/dev/null 2>&1 || die "push $f fehlgeschlagen"
+  done
+  for rel in noxis-hw/usr/lib/noxis/hw/noxis-install-debs noxis-hw/usr/lib/systemd/system/noxis-install-debs.service; do
+    dst="$M/${rel#*/}"
+    adb push "$REPO/$rel" "$dst" >/dev/null 2>&1 || die "push $rel fehlgeschlagen"
+  done
+  adb shell "chmod 755 $M/usr/lib/noxis/hw/noxis-install-debs; chmod 644 $M/usr/lib/systemd/system/noxis-install-debs.service; \
+    mkdir -p $M/etc/systemd/system/multi-user.target.wants; \
+    ln -sf /usr/lib/systemd/system/noxis-install-debs.service $M/etc/systemd/system/multi-user.target.wants/noxis-install-debs.service" \
+    >/dev/null 2>&1
+  ok "Pakete liegen bereit – Noxis installiert sie beim naechsten Boot"
   umount_root
   ;;
 

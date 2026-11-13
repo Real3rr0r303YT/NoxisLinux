@@ -68,7 +68,7 @@ PKG_APPS="firefox-esr,gnome-calls,chatty"
 # pentest tools from Debian (Kali-style); NOXIS_PENTEST=0 leaves them out
 PKG_PENTEST="nmap masscan aircrack-ng reaver hcxdumptool hcxtools wifite macchanger tshark wireshark tcpdump bettercap hydra john hashcat sqlmap gobuster ffuf netcat-openbsd socat proxychains4 dnsutils whois binwalk radare2 sslscan dsniff ettercap-text-only podman distrobox"
 PENTEST="${NOXIS_PENTEST:-1}"
-PKG_OPTIONAL="mobile-config-firefox waydroid kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs pd-mapper tqftpserv qrtr-tools bluez-tools"
+PKG_OPTIONAL="mobile-config-firefox waydroid kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs protection-domain-mapper tqftpserv qrtr-tools bluez-tools"
 
 # ------------------------------------------------------------ language + time zone
 LANG_CODES=(de tr en fr bg ru uk)

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+[Unit]
+Description=Noxis: install packages dropped in by noxis-diag.sh debs
+ConditionDirectoryNotEmpty=/var/cache/noxis-debs
+After=local-fs.target
+Before=noxis-radios.service rmtfs.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/noxis/hw/noxis-install-debs
+
+[Install]
+WantedBy=multi-user.target

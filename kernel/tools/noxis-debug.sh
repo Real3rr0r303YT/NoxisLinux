@@ -84,6 +84,7 @@ rsh "sync; umount $M"
 hdr "2/5 Dateien einspielen"
 "$T/noxis-diag.sh" shell
 "$T/noxis-diag.sh" seatd
+"$T/noxis-diag.sh" debs || echo "[debug] Pakete nicht geholt – weiter ohne"
 [ -f "$HOME/Desktop/noxis-linux/mesa-kgsl.tar.gz" ] && "$T/noxis-diag.sh" gpu
 "$T/noxis-diag.sh" install
 
@@ -111,6 +112,8 @@ echo "--- seatd / phoc / gnome-session ---"
 grep -aE "seatd\[|phoc\[|gnome-session|Session terminated|SessionManager" "$J" | grep -aiE "error|fail|terminat|lost|critical|open|added" | tail -20
 echo "--- squeekboard ---"; grep -ai "squeekboard" "$J" | tail -5
 echo "--- Akku / Netz / Firmware ---"; cat "$D/system.log" 2>/dev/null | head -60
+echo "--- Modem / WLAN (rmtfs, pd-mapper, icnss2) ---"
+grep -aE "rmtfs\[|pd-mapper|noxis-install-debs|icnss2: (Driver|Unable)|wlan0|DMS QMI|qrtr" "$D/journal.log" 2>/dev/null | sort -u -k5 | tail -25
 echo "--- Firmware-Fehler (Anzahl je Datei) ---"
 grep -aoE 'Direct firmware load for [^ ]+ failed' "$D/dmesg.log" | sort | uniq -c | sort -rn | head -15
 echo "--- GPU (KGSL / turnip) ---"; cat "$D/gpu.log" 2>/dev/null

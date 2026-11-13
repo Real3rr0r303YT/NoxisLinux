@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+# Installiert .deb-Dateien, die noxis-diag.sh debs vom PC aus abgelegt hat.
+# dpkg laeuft hier nativ auf dem Handy, nicht in der Recovery.
+set -u
+D=/var/cache/noxis-debs
+ls "$D"/*.deb >/dev/null 2>&1 || exit 0
+echo "noxis-install-debs: $(ls "$D" | tr '\n' ' ')"
+if dpkg -i "$D"/*.deb; then
+  echo "noxis-install-debs: ok"
+else
+  echo "noxis-install-debs: dpkg meldet Fehler (fehlende Abhaengigkeiten?)"
+  dpkg --configure -a || true
+fi
+rm -f "$D"/*.deb
+systemctl daemon-reload
+# pd-mapper sofort starten, damit das Modem seine Dienste findet
+systemctl enable --now pd-mapper.service 2>/dev/null || true
+exit 0
