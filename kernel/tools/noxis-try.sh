@@ -79,17 +79,19 @@ wait_adb() {
 restore_stock() {
   wait_fastboot
   c "Stock vbmeta, boot und init_boot zurueck"
-  fastboot flash vbmeta    "$STOCK/vbmeta.emmc.win" >/dev/null 2>&1 || die "flash vbmeta fehlgeschlagen"
-  fastboot flash boot      "$STOCK/boot.emmc.win"   >/dev/null 2>&1 || die "flash boot fehlgeschlagen"
-  fastboot flash init_boot "$BK/init_boot.orig.img" >/dev/null 2>&1 || die "flash init_boot fehlgeschlagen"
-  fastboot set_active a >/dev/null 2>&1
+  c "Stock-Quelle: $STOCK"
+  # Ausgabe sichtbar lassen: welcher Slot geschrieben wird, steht nur dort.
+  fastboot flash vbmeta    "$STOCK/vbmeta.emmc.win" 2>&1 | grep -E "Sending|Writing|FAILED|error" || true
+  fastboot flash boot      "$STOCK/boot.emmc.win"   2>&1 | grep -E "Sending|Writing|FAILED|error" || true
+  fastboot flash init_boot "$BK/init_boot.orig.img" 2>&1 | grep -E "Sending|Writing|FAILED|error" || true
+  fastboot set_active a 2>&1 | grep -E "Setting|FAILED" || true
   ok "Stock wiederhergestellt"
 }
 
 if [ "${1:-}" = "--restore" ]; then
   restore_stock
   c "Recovery starten"
-  fastboot reboot recovery >/dev/null 2>&1
+  fastboot reboot recovery 2>&1 | grep -E "Rebooting|FAILED" || true
   exit 0
 fi
 
