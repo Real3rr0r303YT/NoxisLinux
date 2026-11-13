@@ -302,25 +302,47 @@ done
 # Mesa mit Turnip/KGSL (Vulkan, experimentell) nach /opt/mesa-kgsl, falls gebaut
 if [ -f /tmp/noxis/mesa-kgsl.tar.gz ]; then
   mkdir -p /opt && tar -xzf /tmp/noxis/mesa-kgsl.tar.gz -C /opt && echo "mesa-kgsl in /opt"
-  # GPU-Env für Phosh/GDK: Turnip-Vulkan + Zink (OpenGL über Vulkan)
-  mkdir -p /etc/environment.d
-  cat > /etc/environment.d/90-noxis-gpu.conf << 'GPUENV'
-# Noxis GPU: Turnip (Adreno 643L Vulkan) + Zink (OpenGL via Vulkan)
+  # Die GPU-Umgebung wird NICHT von selbst eingeschaltet. Global gesetzt kann
+  # sie die Sitzung oder die GPU aufhaengen, und dann startet der Watchdog das
+  # Geraet neu – ohne Bildschirm und ohne Log. Darum liegt sie nur bereit und
+  # wird mit "noxis-gpu an" eingeschaltet, mit "noxis-gpu aus" wieder weg.
+  mkdir -p /usr/share/noxis
+  cat > /usr/share/noxis/gpu-env.conf << 'GPUENV'
+# Noxis GPU: Turnip (Adreno 643L, Vulkan) + Zink (OpenGL ueber Vulkan)
 # Made by 3rr0r303YT on TikTok – GPL-3.0
 VK_ICD_FILENAMES=/opt/mesa-kgsl/share/vulkan/icd.d/freedreno_icd.aarch64.json
-LD_LIBRARY_PATH=/opt/mesa-kgsl/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH
+LD_LIBRARY_PATH=/opt/mesa-kgsl/lib/aarch64-linux-gnu
 MESA_LOADER_DRIVER_OVERRIDE=zink
-GBM_BACKEND=dri
 GBM_BACKENDS_PATH=/opt/mesa-kgsl/lib/aarch64-linux-gnu/gbm
 LIBGL_DRIVERS_PATH=/opt/mesa-kgsl/lib/aarch64-linux-gnu/dri
 GPUENV
-  # Phosh-Service: GPU-Env laden
-  mkdir -p /etc/systemd/system/phosh.service.d
-  cat > /etc/systemd/system/phosh.service.d/90-noxis-gpu.conf << 'PHOSHGPU'
-# Noxis GPU override – Made by 3rr0r303YT on TikTok – GPL-3.0
-[Service]
-EnvironmentFile=-/etc/environment.d/90-noxis-gpu.conf
-PHOSHGPU
+  cat > /usr/bin/noxis-gpu << 'GPUSW'
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# GPU-Beschleunigung (Turnip/Zink) ein- oder ausschalten. Nur fuer Phosh,
+# nicht fuer die ganze Sitzung: so bleibt ein Terminal zum Zurueckschalten.
+set -eu
+D=/etc/systemd/system/phosh.service.d
+F=$D/90-noxis-gpu.conf
+case "${1:-}" in
+  an|on)
+    [ -f /usr/share/noxis/gpu-env.conf ] || { echo "Mesa fehlt (/opt/mesa-kgsl)"; exit 1; }
+    mkdir -p "$D"
+    printf '[Service]\nEnvironmentFile=/usr/share/noxis/gpu-env.conf\n' > "$F"
+    systemctl daemon-reload
+    echo "GPU an. Wirkt nach: systemctl restart phosh"
+    echo "Wenn der Bildschirm danach schwarz bleibt: noxis-gpu aus"
+    ;;
+  aus|off)
+    rm -f "$F"; systemctl daemon-reload
+    echo "GPU aus (Software-Rendering). Wirkt nach: systemctl restart phosh"
+    ;;
+  *) [ -f "$F" ] && echo "GPU: an" || echo "GPU: aus"
+     echo "Nutzung: noxis-gpu an | aus" ;;
+esac
+GPUSW
+  chmod 755 /usr/bin/noxis-gpu
 fi
 # Schemas der Noxis-Pakete (Bildschirmtastatur an, Hintergrund, dunkles Design)
 glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true

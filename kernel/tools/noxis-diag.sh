@@ -15,6 +15,8 @@
 #   ./noxis-diag.sh debs      fehlende Debian-Pakete (pd-mapper, dbus-x11) per
 #                             Docker holen; das Handy installiert sie beim
 #                             naechsten Boot selbst (dpkg laeuft dort nativ)
+#   ./noxis-diag.sh gpu-off   GPU-Umgebung (Turnip/Zink) aus dem installierten
+#                             System nehmen – gegen Neustart-Schleifen
 #
 # Warum nicht das Journal: noxis-opsec setzt Storage=volatile, das Journal
 # liegt also nur im RAM und ist nach dem Ausschalten weg. Und der
@@ -312,6 +314,19 @@ remove)
   adb shell "rm -f $M/etc/systemd/system/multi-user.target.wants/noxis-bootlog.service $M/etc/systemd/system/noxis-bootlog.service $M/usr/local/sbin/noxis-bootlog" >/dev/null 2>&1
   adb shell "rm -rf $M/var/log/noxis" >/dev/null 2>&1
   ok "Haken entfernt"
+  umount_root
+  ;;
+
+gpu-off)
+  # Die GPU-Umgebung (Turnip/Zink) global zu setzen kann die Sitzung oder die
+  # GPU aufhaengen; dann greift der Watchdog und das Geraet startet neu.
+  # Hier nehmen wir sie aus dem installierten System heraus, ohne Neubau.
+  need_recovery; mount_root
+  adb shell "rm -f $M/etc/environment.d/90-noxis-gpu.conf \
+                   $M/etc/systemd/system/phosh.service.d/90-noxis-gpu.conf" >/dev/null 2>&1
+  adb shell "[ -e $M/etc/environment.d/90-noxis-gpu.conf ] && echo da" 2>/dev/null | grep -q da \
+    && { umount_root; die "konnte die GPU-Umgebung nicht entfernen"; }
+  ok "GPU-Umgebung entfernt – Noxis startet wieder mit Software-Rendering"
   umount_root
   ;;
 
