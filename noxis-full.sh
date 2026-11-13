@@ -108,8 +108,11 @@ fi
 hdr "3/5 Kernel + Initramfs + boot.img"
 if [ -n "$FW" ]; then export NOXIS_FIRMWARE="$FW"; fi
 "${RUN[@]}" "$HERE/build-noxis-linux.sh" kernel || die "Kernel-Bau fehlgeschlagen"
+# Der Kernelbau laeuft im Docker als root und legt device/ neu an. Ohne das
+# hier scheitert gleich das Zurueckkopieren mit "Permission denied".
+sudo chown -R "$(id -u):$(id -g)" "$OUT" 2>/dev/null || true
 if [ -z "$FW" ] && ls "$BK"/fw-deb/*.deb >/dev/null 2>&1; then
-  "${RUN[@]}" cp -f "$BK"/fw-deb/*.deb "$OUT/device/"
+  cp -f "$BK"/fw-deb/*.deb "$OUT/device/" || die "Firmware-Paket nicht zurueckkopiert"
 fi
 for f in boot.img initramfs.cpio.lz4; do [ -f "$OUT/$f" ] || die "$OUT/$f fehlt nach dem Kernel-Bau"; done
 ok "Kernel fertig"
