@@ -427,7 +427,13 @@ wlan)
          adb shell ls /tmp/vnd"
   fi
   for f in $found; do c "gefunden: $f  ($(adb shell "wc -c < $f" 2>/dev/null | tr -d '\r') Bytes)"; done
-  src=$(echo "$found" | head -1)
+  # Der Chip dieses Geraets ist qca6750 – das sagt die Remoteproc-Firmware
+  # (qca6750/wpss.mdt). peach_v2 und wcn6450 sind andere Chips derselben
+  # Plattform; deren Ini waere die falsche. Also gezielt waehlen, nicht die
+  # erste der Liste nehmen.
+  src=$(echo "$found" | grep -m1 'qca6750' || true)
+  [ -n "$src" ] || src=$(echo "$found" | head -1)
+  c "verwende: $src"
 
   # Auch ins Backup legen, das der Rootfs-Bau nach /lib/firmware spiegelt -
   # sonst ist die Datei beim naechsten Bau wieder weg.
@@ -439,12 +445,30 @@ wlan)
   done
 
   mount_root
+  # Nicht stumm kopieren: beim ersten Versuch war das Ergebnis leer und die
+  # Ursache weggeworfen. Fehler also sichtbar lassen.
   for d in qca_cld3_qca6750 qca6750; do
-    adb shell "mkdir -p $M/lib/firmware/wlan/qca_cld/$d && cp $src $M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini" >/dev/null 2>&1
+    adb shell "mkdir -p $M/lib/firmware/wlan/qca_cld/$d 2>&1; \
+      cp $src $M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini 2>&1; \
+      [ -f $M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini ] \
+        && echo \"  ok $d: \$(wc -c < $M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini) Bytes\" \
+        || echo \"  FEHLT $d\""
   done
+  # Falls cp im Recovery nicht mitspielt: ueber den PC schieben.
+  n=$(adb shell "ls $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
+  if [ "${n:-0}" -eq 0 ]; then
+    c "cp im Recovery ohne Wirkung – schiebe die Datei ueber den PC"
+    tmpf=$(mktemp)
+    adb pull "$src" "$tmpf" >/dev/null 2>&1 || die "konnte $src nicht holen"
+    for d in qca_cld3_qca6750 qca6750; do
+      adb shell "mkdir -p $M/lib/firmware/wlan/qca_cld/$d" >/dev/null 2>&1
+      adb push "$tmpf" "$M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini" 2>&1 | tail -1
+    done
+    rm -f "$tmpf"
+    n=$(adb shell "ls $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
+  fi
   c "jetzt im Rootfs:"
   adb shell "ls -l $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null || echo '  (nichts)'"
-  n=$(adb shell "ls $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
   adb shell "umount /tmp/vnd 2>/dev/null" >/dev/null 2>&1
   umount_root
   [ "${n:-0}" -ge 1 ] || die "Datei nicht ins Rootfs gekommen"
