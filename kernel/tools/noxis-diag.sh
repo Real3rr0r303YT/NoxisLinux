@@ -566,12 +566,16 @@ wpa2)
   adb shell "cat $d/95-noxis-wpa2.conf 2>/dev/null | sed 's/^/  /'"
   adb shell "[ -f $d/95-noxis-wpa2.conf ] && echo da" 2>/dev/null | grep -q da \
     || { umount_root; die "Datei nicht angelegt"; }
-  # Vorhandene Profile fuer dieses Netz loeschen, damit die App ein frisches
-  # mit dem neuen Vorgabewert anlegt.
-  adb shell "ls $M/etc/NetworkManager/system-connections/ 2>/dev/null | sed 's/^/  vorhandenes Profil: /'"
-  ok "WPA2 erzwungen – wirkt beim naechsten Start"
-  c "Danach im WLAN-Menue das Netz einmal VERGESSEN und neu verbinden,"
-  c "damit die App ein frisches Profil anlegt."
+  # Vorhandene WLAN-Profile loeschen. Der Vorgabewert aus conf.d greift nur
+  # dort, wo im Profil nichts Ausdrueckliches steht - hat die App beim Anlegen
+  # key-mgmt=sae hineingeschrieben, bleibt es dabei. Darauf zu hoffen, dass
+  # jemand das Netz von Hand "vergisst", ist unzuverlaessig.
+  sc="$M/etc/NetworkManager/system-connections"
+  adb shell "ls $sc/ 2>/dev/null | sed 's/^/  war da: /'"
+  adb shell "grep -l 'wifi' $sc/*.nmconnection 2>/dev/null | xargs -r rm -f" >/dev/null 2>&1
+  adb shell "ls $sc/*.nmconnection 2>/dev/null | wc -l | sed 's/^/  Profile jetzt: /'"
+  ok "WPA2 erzwungen, WLAN-Profile geloescht – wirkt beim naechsten Start"
+  c "Gespeicherte WLAN-Passwoerter sind damit weg; einmal neu eingeben."
   c "Rueckgaengig:  noxis-diag.sh wpa3"
   umount_root
   ;;
