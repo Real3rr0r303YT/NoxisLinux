@@ -22,4 +22,20 @@ for f in "$DEST"/msbtfw* "$DEST"/msnv* "$DEST"/apbtfw* "$DEST"/apnv*; do
   [ -e "$f" ] || [ -L "$f" ] || continue
   ln -sf "$(readlink "$f" 2>/dev/null || echo "$f")" "$DEST/qca/$(basename "$f")"
 done
+# pd-mapper sucht die .jsn-Dateien in /lib/firmware/<Ordner der Remoteproc-
+# Firmware>. Steht dort ein Unterordner (z. B. qcom/...) oder ein absoluter
+# Pfad, legen wir genau diesen Ordner an und verlinken die .jsn hinein.
+SYS=${NOXIS_SYS:-/sys}
+for r in "$SYS"/class/remoteproc/remoteproc*; do
+  fw=$(cat "$r/firmware" 2>/dev/null) || continue
+  d=$(dirname "$fw")
+  case "$d" in .|"") continue ;; esac
+  d=${d#/}
+  mkdir -p "$DEST/$d" 2>/dev/null || continue
+  for j in "$DEST"/*.jsn; do
+    [ -e "$j" ] || [ -L "$j" ] || continue
+    [ -e "$DEST/$d/$(basename "$j")" ] || [ -L "$DEST/$d/$(basename "$j")" ] || ln -s "$(readlink "$j" 2>/dev/null || echo "${j#"$FW_ROOT"}")" "$DEST/$d/$(basename "$j")"
+  done
+  echo "noxis-firmware-links: .jsn for $(cat "$r/name" 2>/dev/null) -> /lib/firmware/$d"
+done
 echo "noxis-firmware-links: $n links"

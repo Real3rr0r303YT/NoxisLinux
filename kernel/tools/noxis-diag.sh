@@ -210,6 +210,7 @@ shell)
       noxis-hw/etc/systemd/logind.conf.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/upower.service.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/rmtfs.service.d/90-noxis.conf \
+      noxis-hw/etc/systemd/system/pd-mapper.service.d/90-noxis.conf \
       noxis-hw/usr/lib/udev/rules.d/70-noxis-gpu.rules \
       noxis-hw/usr/lib/noxis/hw/noxis-firmware-links \
       noxis-hw/usr/lib/noxis/hw/noxis-radios
