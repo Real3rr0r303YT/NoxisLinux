@@ -27,8 +27,12 @@
 
 - 🐉 **Kali Linux tools built in** – nmap, aircrack-ng, wifite, hcxdumptool, bettercap, Wireshark, hydra, john, hashcat, sqlmap, gobuster, ffuf and more from Debian
 - 🐉 **Full Kali on demand** – `noxis-kali` starts a real Kali Linux container (Metasploit, `kali-linux-headless`), sharing the Noxis firewall and VPN
-- 🤖 **Waydroid** – Android apps inside Linux (`sudo waydroid init` once)
+- 🤖 **Waydroid** – vorgesehen, aber **noch nicht enthalten**: Debian trixie hat kein `waydroid`-Paket (`has no installation candidate`), dafür bräuchte es Waydroids eigene Paketquelle. Sinnvoll wird es ohnehin erst mit laufender GPU
 - `NOXIS_PENTEST=0` builds without the pentest tools
+- 🔌 **Shell vom PC über USB** – `noxis-diag.sh usbnet` + `noxis-shell.sh`, statt Befehle auf der Bildschirmtastatur abzutippen
+- 📶 **WLAN-Bring-up** – `noxis-diag.sh wlan` legt `WCNSS_qcom_cfg.ini` und die Board-Daten nach, ohne das Rootfs neu zu bauen
+- ⌨️ **Bildschirmtastatur** – DBus-Aktivierung für `sm.puri.OSK0`; ohne sie startet unter Phosh keine Tastatur
+- 🖥️ **GPU nur auf Zuruf** – `noxis-gpu an|aus` statt beim Start, weil Turnip/Zink das Gerät in eine Neustart-Schleife ziehen kann
 
 <p align="center"><img src="docs/img/flow.png" alt="First boot: language → time zone → login" width="820"></p>
 <p align="center"><sub>First boot: language → time zone → login (renderings of the GTK4 greeter)</sub></p>
@@ -47,7 +51,7 @@
 - **Browsers** – Tor Browser (aarch64, GPG-verified), Firefox with arkenfox
 - **Kernel** – from the official Nothing sources, with Yama and Landlock, without user namespaces/kexec
 - **Kali Linux tools** – the common Kali tools from Debian, plus `noxis-kali` for a full Kali container (see [Pentest tools](#pentest-tools))
-- **Waydroid** – run Android apps in a container
+- **Waydroid** – geplant, siehe oben: in Debian trixie nicht verfügbar
 - **Builds** – `git --depth=1`, signature checks, SHA-256, automatic cleanup
 
 ## Alles in einem Rutsch
@@ -76,6 +80,78 @@ kernel/tools/noxis-rescue.sh reboot      # wieder Noxis
 
 Startet das Rootfs nicht, landet Noxis von selbst im Rescue-Modus.
 
+## Shell vom PC und Fehlersuche
+
+Befehle auf der Bildschirmtastatur abzutippen ist für Fehlersuche unbrauchbar.
+Noxis meldet sich darum auf Wunsch am USB-Kabel als Netzwerkkarte
+(172.16.42.1) und nimmt dort SSH an:
+
+```bash
+kernel/tools/noxis-diag.sh usbnet        # einmalig einrichten (Handy in der Recovery)
+kernel/tools/noxis-shell.sh              # Shell ins laufende Noxis
+kernel/tools/noxis-shell.sh "nmcli d"    # einen Befehl ausführen
+kernel/tools/noxis-shell.sh --copy datei # Datei aufs Handy legen
+```
+
+Das öffnet SSH **ausschließlich auf `usb0`** – nur für jemanden, der ein Kabel
+ansteckt, nicht über WLAN oder Mobilfunk. Die Regel wird beim Start in die
+bestehende nftables-Kette gehängt und beim Stoppen wieder entfernt; die
+ausgelieferte `firewall.nft` bleibt unverändert. Darum ist der Dienst auch
+nicht von selbst an.
+
+Reparaturen am installierten System, ohne das Rootfs neu zu bauen (Handy
+jeweils in der Stock-Recovery, `kernel/tools/noxis-try.sh --restore` bringt es
+dorthin):
+
+```bash
+kernel/tools/noxis-diag.sh wlan      # WLAN-Konfiguration aus vendor nachlegen
+kernel/tools/noxis-diag.sh vendorfw  # Board-Daten aus /vendor/firmware einspielen
+kernel/tools/noxis-diag.sh osk       # Bildschirmtastatur (sm.puri.OSK0) nachlegen
+kernel/tools/noxis-diag.sh gpu-off   # GPU-Umgebung entfernen (Neustart-Schleife)
+kernel/tools/noxis-diag.sh install   # Log-Haken einbauen
+kernel/tools/noxis-diag.sh fetch     # Logs holen und auswerten
+kernel/tools/noxis-try.sh --log      # Kernel-Log des letzten Starts (pstore)
+```
+
+### WLAN: die Konfigurationsdatei des Treibers
+
+`qca_cld3_qca6750` liest beim Start `WCNSS_qcom_cfg.ini`. Fehlt sie, bricht der
+Treiber wenige Millisekunden nach der MAC-Übergabe ab:
+
+```
+icnss2: WLAN FW is ready: 0x480487
+icnss2_qmi: Received DMS MAC: [..]
+icnss2: Driver probe failed: -1
+```
+
+Dazwischen steht **kein Wort vom Treiber** – der Firmware-Lader schweigt bei
+fehlender Datei, und die Fehlerzeile des Treibers ist zu diesem Zeitpunkt
+abgeschaltet. Drei Dinge daran sind leicht falsch zu machen:
+
+- Die Datei liegt **nicht** unter `firmware/wlan/…` auf der vendor-Partition –
+  dort steht nur ein Verweis. Das Ziel ist
+  `/vendor/etc/wifi/qca6750/WCNSS_qcom_cfg.ini` (rund 2,5 KB). Auf derselben
+  Partition liegen auch `peach_v2` und `wcn6450`; das sind andere Chips.
+- Welchen Pfad der gebaute Treiber anfragt, steht in seinem Objektcode und
+  weicht von der Stock-Ablage ab:
+  `grep -ao '[a-zA-Z0-9_/.-]*WCNSS_qcom_cfg[a-zA-Z0-9_/.-]*' wlan_hdd_main.o`
+  ergibt hier `wlan/qca_cld/qca_cld3_qca6750/`, die Stock-Ablage nutzt
+  `qca6750/`. `noxis-diag.sh wlan` bedient beide.
+- Abgelegt wird unter `/lib/firmware/updates/…`. `/lib/firmware/wlan` ist einer
+  der Verweise von `noxis-firmware-links` und zeigt auf
+  `/vendor/firmware_mnt/image/wlan`; in der Recovery hängt diese Partition
+  nicht, der Verweis ist dort tot. Der Firmware-Lader durchsucht `updates/`
+  ohnehin vor `/lib/firmware`.
+
+`wlan_mac.bin` wird **nicht** gebraucht: das Ziel des Verweises liegt in
+`persist`, und der Treiber liest die Datei erst nach dem DMS-Weg – und über den
+kommt die MAC ja an.
+
+Ein Hinweis zum Testen: ein `modprobe -r` plus `modprobe` genügt dafür nicht.
+Das Signal „WLAN FW is ready" gibt die Firmware nur einmal je Start des
+WLAN-Prozessors; nach dem Nachladen wartet der Treiber vergeblich darauf. Die
+Ini wirkt erst nach einem echten Neustart.
+
 ## Installation auf dem Gerät
 
 ```sh
@@ -99,6 +175,15 @@ Hand leicht falsch macht:
   geflasht werden. Werden `vbmeta_system` und `vbmeta_vendor` mitentschärft,
   bootet das Gerät gar nicht mehr und fällt sofort in fastboot zurück — auch
   mit Stock-Kernel und Stock-Recovery.
+- `fastboot reboot` allein bringt Noxis auf diesem Gerät nicht hoch; der
+  Bildschirm bleibt nach dem Logo schwarz. Gestartet wird mit
+  `fastboot reboot recovery`. Das liegt daran, dass `/proc/bootconfig` nichts
+  liefert: `androidboot.mode` und `androidboot.force_normal_boot` kommen leer
+  an, „recovery" ist hier also der normale Startweg und löst keinen Rescue aus.
+- Es gibt eine 100 MiB große `recovery`-Partition, aber ein fremdes Abbild
+  darin wird von der Prüfkette abgelehnt und das Gerät startet gar nicht mehr.
+  Vorher `recovery.emmc.win` aus einem Backup sichern; zurück geht es mit
+  `fastboot flash recovery <backup>` und anschließend `noxis-try.sh`.
 
 ## Quick start
 
@@ -145,7 +230,7 @@ Other options: `NOXIS_USER=noxis NOXIS_PIN=147147 NOXIS_DEVICE_DEBS=<folder> BOO
 | Phase | Content | Status |
 |---|---|---|
 | 1 | OPSEC layer `noxis-opsec` (firewall, Mullvad, DNS, USB, keyboard, hardening) | **done, tested** |
-| 2 | Rootfs build: Debian trixie arm64, Phosh + noxis-dm, Tor, Firefox + arkenfox, Waydroid | **done, flow tested** |
+| 2 | Rootfs build: Debian trixie arm64, Phosh + noxis-dm, Tor, Firefox + arkenfox | **done, flow tested** (Waydroid fehlt: kein Paket in trixie) |
 | 3 | Image: `rootfs.img` (ext4) + sparse, SHA-256, auto-cleanup | **done, tested** |
 | 4 | Kernel from `NothingOSS/android_kernel_msm-6.1_nothing_sm7635` + own modules + initramfs → `boot.img` | **script done, config tested, build untested** |
 | 5 | First boot: UFS, USB debug network, systemd | **boots on the device**: ext4 root mounted, systemd and journald up |
@@ -286,7 +371,7 @@ Firmware is proprietary – the package stays on your machine and never goes int
 |---|---|
 | Firmware | `noxis-firmware-links` links `/vendor/firmware_mnt/image` (modem partition), `/vendor/firmware` and `/vendor/dsp` into `/lib/firmware` before modules load – real Debian firmware is never replaced |
 | Remote processors | `noxis-radios` boots the ADSP (`/sys/kernel/boot_adsp`), starts offline remoteprocs (modem, CDSP), like Android's `init.target.rc` |
-| Wi-Fi | WCN6750 via `icnss2` + `qca_cld3_qca6750` (built from Nothing's sources, `volcano_gki_qca6750` profile), `fs_ready` signal → `wlan0` in NetworkManager, random MAC |
+| Wi-Fi | WCN6750 via `icnss2` + `qca_cld3_qca6750` (built from Nothing's sources, `volcano_gki_qca6750` profile), `fs_ready` signal → `wlan0` in NetworkManager, random MAC. Needs `WCNSS_qcom_cfg.ini` from the vendor partition and the `qca6750` board data, otherwise the probe fails with `-1` – see [WLAN: die Konfigurationsdatei des Treibers](#wlan-die-konfigurationsdatei-des-treibers) |
 | Mobile network | QRTR (in-kernel name service) + `rmtfs` (modem storage via the `rmtfs` UIO region) + `pd-mapper` + `tqftpserv` → ModemManager (QMI over QRTR), data over `rmnet`/IPA |
 | Bluetooth | `noxis-btpower` switches the rail (`/dev/btpower`, ioctl `0xbfad`), `btattach -P qca` on `/dev/ttyHS0` → BlueZ |
 

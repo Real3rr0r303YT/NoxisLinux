@@ -200,7 +200,7 @@ c "starten"
 # /proc/bootconfig liefert nichts, androidboot.force_normal_boot ist leer.
 # "recovery" ist hier also der normale Startweg und bedeutet keinen Rescue.
 fastboot reboot recovery >/dev/null 2>&1
-ok "gestartet – schau aufs Display. Ich warte 150 Sekunden auf ein Netzwerk-Interface."
+ok "gestartet – schau aufs Display."
 
 # Frueher wurde hier 150 Sekunden auf ein USB-Interface gewartet und bei
 # Ausbleiben automatisch das Log geholt. Das passte nur zum Rescue: das
