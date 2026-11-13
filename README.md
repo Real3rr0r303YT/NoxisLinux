@@ -143,6 +143,46 @@ abgeschaltet. Drei Dinge daran sind leicht falsch zu machen:
   nicht, der Verweis ist dort tot. Der Firmware-Lader durchsucht `updates/`
   ohnehin vor `/lib/firmware`.
 
+### WLAN: offener Punkt – die Funkkalibrierung (Board-Daten)
+
+Mit der Ini erscheint `wlan0` und NetworkManager findet Netze. Die Anmeldung
+scheitert aber, und zwar **nicht am Passwort**:
+
+```
+CTRL-EVENT-ASSOC-REJECT status_code=65531 qca_driver_reason=auth_no_resp_received
+wlan0: Authentication with <bssid> timed out.
+```
+
+Der Router antwortet gar nicht; es kommt nie zum Schlüsselaustausch.
+NetworkManager meldet trotzdem „falsches Passwort", weil er jeden Fehlschlag so
+darstellt. Ausgeschlossen sind:
+
+- **Passwort und WPA3.** Auch mit `wifi-sec.key-mgmt wpa-psk` und
+  `wifi-sec.pmf 1` (PMF aus) bleibt es beim selben Fehler.
+- **Der Funkkanal.** Das Netz sendet auf Kanal 6 (2437 MHz), der auch im
+  gesetzten Bereich erlaubt ist.
+
+Die Ursache steht hier:
+
+```
+wma_rx_service_ready_event: Board id: 0, Board version: 8 0 0 0 25
+extract_hw_bdf_status: BDF VER is 0, FW and BDF ver check skipped
+```
+
+`Board id: 0` und `BDF VER is 0` heißt: die Firmware hat **keine gültige
+Board-Datei** bekommen und läuft mit Vorgabewerten. Ohne Funkkalibrierung
+empfängt das Modul, aber seine Sendungen kommen nicht an – genau das Bild oben.
+
+Die `bdwlan.b01` … `bdwlan.b13` und `Data.msc` aus `/vendor/firmware/qca6750`
+liegen zwar in `/lib/firmware/qca6750` (siehe `noxis-diag.sh vendorfw`), werden
+aber offenbar nicht geladen. Zu klären ist, unter welchem Namen icnss2 die
+Datei über QMI anfordert und welche Variante zur Board-ID gehört.
+
+Zum Funkbereich noch, weil es leicht in die Irre führt: `iw reg get` zeigt
+`phy#0 (self-managed)` mit `country US`. Der Treiber verwaltet seinen Bereich
+selbst, `iw reg set DE` bleibt also wirkungslos. Für 2,4 GHz spielt das hier
+keine Rolle (Kanal 1–11 sind erlaubt), für Kanal 12/13 und DFS schon.
+
 `wlan_mac.bin` wird **nicht** gebraucht: das Ziel des Verweises liegt in
 `persist`, und der Treiber liest die Datei erst nach dem DMS-Weg – und über den
 kommt die MAC ja an.
