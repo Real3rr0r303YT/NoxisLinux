@@ -331,10 +331,19 @@ debs)
   mkdir -p "$cache"
   if ! ls "$cache"/*.deb >/dev/null 2>&1; then
     command -v docker >/dev/null || die "docker fehlt"
+    # Ein arm64-Container auf x86 braucht qemu im binfmt_misc des Rechners.
+    # Fehlt es, bricht docker mit "exec format error" ab. Die Registrierung
+    # haelt nur bis zum Neustart, also hier jedes Mal sicherstellen.
+    if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+      c "qemu-aarch64 fuer Docker registrieren (einmal pro Rechnerstart)"
+      sudo docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 \
+        || c "binfmt-Registrierung fehlgeschlagen – versuche es trotzdem"
+    fi
     c "lade $PKGS (arm64) …"
-    docker run --rm --platform linux/arm64 -v "$cache:/out" debian:trixie sh -c \
+    sudo docker run --rm --platform linux/arm64 -v "$cache:/out" debian:trixie sh -c \
       "apt-get update -qq && cd /out && apt-get download -q $PKGS && chmod 644 /out/*.deb" \
       || die "Download fehlgeschlagen"
+    sudo chown "$(id -u):$(id -g)" "$cache"/*.deb 2>/dev/null || true
   fi
   ls "$cache"/*.deb | sed 's|.*/|  |'
   need_recovery; mount_root
