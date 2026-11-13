@@ -72,6 +72,20 @@ umount_root() {
   ok "abgemeldet"
 }
 
+# In Debian ist /lib ein ABSOLUTER Verweis auf /usr/lib. Im Recovery zeigt
+# $M/lib damit nicht ins Handy-System, sondern auf /usr/lib der Recovery
+# selbst: Schreibzugriffe landen in deren Arbeitsspeicher und sind nach dem
+# Neustart weg – ohne jede Fehlermeldung, solange die Verzeichnisse zufaellig
+# existieren. Genau so sind die Board-Daten einmal spurlos verschwunden.
+# Darum den echten Pfad im gemounteten Rootfs ermitteln.
+fwdir() {
+  if adb shell "[ -L $M/lib ] && echo yes" 2>/dev/null | grep -q yes; then
+    echo "$M/usr/lib/firmware"
+  else
+    echo "$M/lib/firmware"
+  fi
+}
+
 case "${1:-}" in
 install)
   need_recovery; mount_root
@@ -445,30 +459,29 @@ wlan)
   done
 
   mount_root
-  # Nicht stumm kopieren: beim ersten Versuch war das Ergebnis leer und die
-  # Ursache weggeworfen. Fehler also sichtbar lassen.
+  FW=$(fwdir)
+  c "Firmware-Ablage im Rootfs: ${FW#$M}"
   for d in qca_cld3_qca6750 qca6750; do
-    adb shell "mkdir -p $M/lib/firmware/wlan/qca_cld/$d 2>&1; \
-      cp $src $M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini 2>&1; \
-      [ -f $M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini ] \
-        && echo \"  ok $d: \$(wc -c < $M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini) Bytes\" \
+    adb shell "mkdir -p $FW/wlan/qca_cld/$d 2>&1; \
+      cp $src $FW/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini 2>&1; \
+      [ -f $FW/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini ] \
+        && echo \"  ok $d: \$(wc -c < $FW/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini) Bytes\" \
         || echo \"  FEHLT $d\""
   done
-  # Falls cp im Recovery nicht mitspielt: ueber den PC schieben.
-  n=$(adb shell "ls $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
+  n=$(adb shell "ls $FW/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
   if [ "${n:-0}" -eq 0 ]; then
     c "cp im Recovery ohne Wirkung – schiebe die Datei ueber den PC"
     tmpf=$(mktemp)
     adb pull "$src" "$tmpf" >/dev/null 2>&1 || die "konnte $src nicht holen"
     for d in qca_cld3_qca6750 qca6750; do
-      adb shell "mkdir -p $M/lib/firmware/wlan/qca_cld/$d" >/dev/null 2>&1
-      adb push "$tmpf" "$M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini" 2>&1 | tail -1
+      adb shell "mkdir -p $FW/wlan/qca_cld/$d" >/dev/null 2>&1
+      adb push "$tmpf" "$FW/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini" 2>&1 | tail -1
     done
     rm -f "$tmpf"
-    n=$(adb shell "ls $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
+    n=$(adb shell "ls $FW/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
   fi
   c "jetzt im Rootfs:"
-  adb shell "ls -l $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null || echo '  (nichts)'"
+  adb shell "ls -l $FW/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null || echo '  (nichts)'"
   adb shell "umount /tmp/vnd 2>/dev/null" >/dev/null 2>&1
   umount_root
   [ "${n:-0}" -ge 1 ] || die "Datei nicht ins Rootfs gekommen"
@@ -554,20 +567,23 @@ vendorfw)
     || die "$src ist leer – erst: kernel/tools/pull-firmware.sh (Handy in der Recovery)"
   c "$(du -sh "$src" | cut -f1) aus $src"
   need_recovery; mount_root
+  FW=$(fwdir)
+  c "Firmware-Ablage im Rootfs: ${FW#$M}"
+  adb shell "mkdir -p $FW" >/dev/null 2>&1
   # Einzeln schieben: adb push eines Ordners legt ihn sonst verschachtelt ab.
   n=0
   for f in "$src"/*; do
     [ -e "$f" ] || continue
     b=$(basename "$f")
     if [ -d "$f" ]; then
-      adb push "$f" "$M/lib/firmware/" >/dev/null 2>&1 && n=$((n + 1)) || c "  $b nicht uebertragen"
+      adb push "$f" "$FW/" >/dev/null 2>&1 && n=$((n + 1)) || c "  $b nicht uebertragen"
     else
-      adb push "$f" "$M/lib/firmware/$b" >/dev/null 2>&1 && n=$((n + 1)) || c "  $b nicht uebertragen"
+      adb push "$f" "$FW/$b" >/dev/null 2>&1 && n=$((n + 1)) || c "  $b nicht uebertragen"
     fi
   done
-  ok "$n Einträge nach /lib/firmware"
+  ok "$n Einträge nach ${FW#$M}"
   c "WLAN-relevante Dateien jetzt im System:"
-  adb shell "ls $M/lib/firmware/ | grep -iE 'bd|wlan|qca|wcn|cnss' | head -20; echo; ls -d $M/lib/firmware/qca6750 2>/dev/null && ls $M/lib/firmware/qca6750 | head -20"
+  adb shell "ls $FW/ | grep -iE 'bd|wlan|qca|wcn|cnss' | head -20; echo; ls -d $FW/qca6750 2>/dev/null && ls $FW/qca6750 | head -20"
   umount_root
   ;;
 
