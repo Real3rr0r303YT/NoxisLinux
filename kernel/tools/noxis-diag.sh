@@ -547,21 +547,42 @@ band24)
   # Dein Netz sendet auf Kanal 6 (2437 MHz) UND auf Kanal 100 (5500 MHz).
   # Kanal 100 ist ein DFS-Kanal. In der Funkdomaene "US", die der Treiber
   # selbst setzt, ist er als "no-IR" markiert: das Handy darf dort von sich
-  # aus nichts senden. Genau das passt zu "auth_no_resp_received" - der
-  # Authentifizierungsrahmen geht nie raus, also antwortet der Router nie.
+  # aus nichts senden. Genau das passt dazu, dass der Router nie antwortet.
   #
-  # Wir zwingen NetworkManager auf das 2,4-GHz-Band. Das ist eine
-  # Voreinstellung, kein Eingriff ins Profil - dein Passwort bleibt drin.
+  # Zweigleisig: Voreinstellung fuer neue Profile UND das vorhandene Profil
+  # direkt anfassen, falls NetworkManager die Voreinstellung nicht annimmt.
   need_recovery; mount_root
   d="$M/etc/NetworkManager/conf.d"
   mkdirs "$d"
   t=$(mktemp)
   printf '[connection]\nwifi.band=bg\n' > "$t"
   adb push "$t" "$d/96-noxis-band.conf" >/dev/null 2>&1 \
-    && echo "  ok 96-noxis-band.conf" || c "  nicht uebertragen"
+    && echo "  ok Voreinstellung geschrieben" || c "  Voreinstellung nicht uebertragen"
   rm -f "$t"
+
+  # Vorhandene Profile. Namen werden bewusst nicht ausgegeben - in den
+  # Dateien steht dein WLAN-Passwort, und der Dateiname ist deine SSID.
+  sc="$M/etc/NetworkManager/system-connections"
+  tmp=$(mktemp -d); chmod 700 "$tmp"
+  n=0
+  for f in $(adb shell "ls $sc/*.nmconnection 2>/dev/null" | tr -d '\r'); do
+    b=$(echo "$f" | sed 's#.*/##')
+    adb pull "$f" "$tmp/$b" >/dev/null 2>&1 || continue
+    grep -q '^\[wifi\]' "$tmp/$b" || continue
+    if grep -q '^band=' "$tmp/$b"; then
+      sed -i 's/^band=.*/band=bg/' "$tmp/$b"
+    else
+      sed -i '/^\[wifi\]/a band=bg' "$tmp/$b"
+    fi
+    if adb push "$tmp/$b" "$f" >/dev/null 2>&1; then
+      adb shell "chmod 600 $f" >/dev/null 2>&1
+      n=$((n+1))
+    fi
+  done
+  rm -rf "$tmp"
+  echo "  ok $n vorhandene(s) Profil(e) auf 2,4 GHz festgelegt"
   umount_root
-  ok "2,4-GHz-Band erzwungen – wirkt beim naechsten Start"
+  ok "2,4-GHz-Band erzwungen - wirkt beim naechsten Start"
   ;;
 
 regdb)
