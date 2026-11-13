@@ -460,6 +460,8 @@ cmd_flash() {
   [ -f "$boot" ]   || die "$boot fehlt – erst: $0 kernel"
   [ -f "$rd" ]     || die "$rd fehlt – erst: $0 kernel (neu bauen, liefert die lz4-Ramdisk mit)"
   command -v python3 >/dev/null || die "python3 fehlt"
+  # Docker läuft als root → out-Ordner gehört root; Rechte zurückgeben
+  sudo chown -R "$(id -u):$(id -g)" "$out" 2>/dev/null || true
   mkdir -p "$tpl"
 
   # Rohlinge vom Geraet: init_boot als Vorlage fuer unsere Ramdisk, vbmeta zum
@@ -519,6 +521,7 @@ cmd_restore() {
   command -v fastboot >/dev/null || die "fastboot fehlt"
   local out tpl
   out="$(desktop_dir)/noxis-linux"
+  sudo chown -R "$(id -u):$(id -g)" "$out" 2>/dev/null || true
   tpl="$out/stock"
   [ -f "$tpl/vbmeta.img" ] && [ -f "$tpl/init_boot.img" ] || die "keine Rohlinge in $tpl – erst: $0 flash"
   [ -f "$tpl/boot.img" ] || die "$tpl/boot.img fehlt – Stock-boot aus einem Backup dorthin legen"
