@@ -6,6 +6,7 @@
 #   ./noxis-diag.sh remove    Haken wieder entfernen
 #   ./noxis-diag.sh shell     noxis-shell und noxis-opsec aus dem Repo ins
 #                             installierte Rootfs kopieren (ohne Neubau)
+#   ./noxis-diag.sh gpu       Mesa mit Turnip-KGSL nach /opt/mesa-kgsl (experimentell)
 #   ./noxis-diag.sh seatd     seatd.service aktivieren und die Benutzer in die
 #                             Gruppe _seatd aufnehmen
 #
@@ -95,6 +96,16 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   echo "--- systemd --user ---"; systemctl --user --no-pager status 2>&1 | head -5
   echo "--- Netz ---"; nmcli -t device 2>&1; rfkill list 2>&1
 } > "$d/system.log" 2>&1
+{ echo "--- KGSL ---"; ls -la /dev/kgsl* /dev/dma_heap 2>&1
+  if [ -d /opt/mesa-kgsl ]; then
+    icd=$(ls /opt/mesa-kgsl/share/vulkan/icd.d/freedreno_icd*.json 2>/dev/null | head -n1)
+    echo "--- vulkaninfo (turnip-kgsl, icd=$icd) ---"
+    VK_ICD_FILENAMES="$icd" LD_LIBRARY_PATH=/opt/mesa-kgsl/lib:/opt/mesa-kgsl/lib/aarch64-linux-gnu \
+      timeout 20 /opt/mesa-kgsl/bin/vulkaninfo --summary 2>&1 | head -60
+  else
+    echo "kein /opt/mesa-kgsl – erst build-mesa-kgsl.sh und noxis-diag.sh gpu"
+  fi
+} > "$d/gpu.log" 2>&1
 journalctl -b --no-pager                > "$d/journal.log"  2>&1
 date                                    > "$d/when.log"     2>&1
 sync
@@ -140,7 +151,7 @@ fetch)
   adb shell "[ -d $M/var/log/noxis ] && echo yes" 2>/dev/null | grep -q yes \
     || { umount_root; die "keine Diagnose gefunden – lief der Dienst? Mindestens 90 Sekunden booten lassen."; }
   mkdir -p "$OUTDIR"
-  for f in when dmesg modules failed running drm system journal; do
+  for f in when dmesg modules failed running drm system gpu journal; do
     adb pull "$M/var/log/noxis/$f.log" "$OUTDIR/$f.log" >/dev/null 2>&1
   done
   umount_root
@@ -214,6 +225,18 @@ seatd)
   done
   adb shell "grep '^_seatd:' $M/etc/group" 2>/dev/null
   adb shell "sync" >/dev/null 2>&1
+  umount_root
+  ;;
+
+gpu)
+  # Mesa mit Turnip-KGSL ins Rootfs unter /opt/mesa-kgsl (EXPERIMENTELL).
+  tgz="$HOME/Desktop/noxis-linux/mesa-kgsl.tar.gz"
+  [ -f "$tgz" ] || die "$tgz fehlt – erst kernel/tools/build-mesa-kgsl.sh"
+  need_recovery; mount_root
+  adb push "$tgz" /tmp/mesa-kgsl.tar.gz >/dev/null 2>&1 || die "push fehlgeschlagen"
+  adb shell "rm -rf $M/opt/mesa-kgsl; mkdir -p $M/opt && tar -xzf /tmp/mesa-kgsl.tar.gz -C $M/opt && rm /tmp/mesa-kgsl.tar.gz" \
+    || die "entpacken fehlgeschlagen"
+  ok "Mesa (turnip-kgsl) nach /opt/mesa-kgsl – der Diagnose-Haken testet es mit vulkaninfo"
   umount_root
   ;;
 

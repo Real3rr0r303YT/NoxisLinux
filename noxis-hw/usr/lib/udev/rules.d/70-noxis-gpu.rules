@@ -1,0 +1,5 @@
+# Noxis: Qualcomms GPU-Geraet (KGSL) und die DMA-Heaps fuer die Gruppe render.
+# Unter Android setzt ueventd 0666; unter Debian waeren sie root-only, und ein
+# Vulkan-Treiber mit KGSL-Backend (turnip) koennte als Benutzer nicht darauf.
+KERNEL=="kgsl-3d0", GROUP="render", MODE="0660"
+SUBSYSTEM=="dma_heap", GROUP="render", MODE="0660"
