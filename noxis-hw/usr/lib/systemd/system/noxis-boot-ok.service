@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# Unter Android meldet die bootctrl-HAL dem Bootloader "Start erfolgreich".
+# Ohne diese Meldung zaehlt der Bootloader jeden Noxis-Start als Fehlversuch
+# und markiert Slot A nach 7 Starts als unbootbar. qbootctl -m holt das nach.
+[Unit]
+Description=Noxis: tell the bootloader this boot succeeded (A/B retry counter)
+After=multi-user.target
+ConditionPathExists=/usr/bin/qbootctl
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/qbootctl -m
+
+[Install]
+WantedBy=multi-user.target

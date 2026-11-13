@@ -5,6 +5,10 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
     rm -f /etc/systemd/system/display-manager.service
   fi
   [ "$1" = purge ] && { deluser --system noxis-greeter >/dev/null 2>&1 || true; }
+  if dpkg-divert --list /usr/lib/os-release | grep -q noxis-shell; then
+    rm -f /usr/lib/os-release
+    dpkg-divert --package noxis-shell --remove --rename --divert /usr/lib/os-release.debian /usr/lib/os-release >/dev/null
+  fi
   glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
 fi
 exit 0

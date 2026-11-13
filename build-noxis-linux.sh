@@ -68,7 +68,7 @@ PKG_APPS="firefox-esr,gnome-calls,chatty"
 # pentest tools from Debian (Kali-style); NOXIS_PENTEST=0 leaves them out
 PKG_PENTEST="nmap masscan aircrack-ng reaver hcxdumptool hcxtools wifite macchanger tshark wireshark tcpdump bettercap hydra john hashcat sqlmap gobuster ffuf netcat-openbsd socat proxychains4 dnsutils whois binwalk radare2 sslscan dsniff ettercap-text-only podman distrobox"
 PENTEST="${NOXIS_PENTEST:-1}"
-PKG_OPTIONAL="mobile-config-firefox waydroid kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs protection-domain-mapper tqftpserv qrtr-tools bluez-tools"
+PKG_OPTIONAL="mobile-config-firefox waydroid kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs protection-domain-mapper tqftpserv qbootctl qrtr-tools bluez-tools"
 
 # ------------------------------------------------------------ language + time zone
 LANG_CODES=(de tr en fr bg ru uk)
@@ -482,7 +482,7 @@ cmd_flash() {
   c "starten"
   fastboot reboot >/dev/null 2>&1
   c "Fertig. Erster Start dauert ein bis drei Minuten (resize2fs + systemd)."
-  c "Anmeldung: Benutzer $NUSER, PIN $NPIN"
+  c "Erster Start: Einrichtung mit Sprache, Zeitzone, eigener PIN und WLAN."
 }
 
 # ------------------------------------------------------------ restore

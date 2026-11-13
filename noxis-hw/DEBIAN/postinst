@@ -5,7 +5,7 @@ set -e
 command -v systemctl >/dev/null && systemctl try-reload-or-restart systemd-logind.service >/dev/null 2>&1 || true
 
 if [ -d /etc/systemd/system ]; then
-  systemctl enable noxis-firmware-links.service noxis-radios.service noxis-bluetooth.service noxis-install-debs.service >/dev/null 2>&1 || true
+  systemctl enable noxis-firmware-links.service noxis-radios.service noxis-bluetooth.service noxis-install-debs.service noxis-boot-ok.service >/dev/null 2>&1 || true
   for s in rmtfs pd-mapper tqftpserv ModemManager; do systemctl enable "$s.service" >/dev/null 2>&1 || true; done
 fi
 exit 0

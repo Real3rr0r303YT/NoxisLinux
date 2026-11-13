@@ -1,0 +1,13 @@
+PRETTY_NAME="Noxis OS 1.0 – Made by 3rr0r303YT"
+NAME="Noxis OS"
+VERSION_ID="1.0"
+VERSION="1.0 (Made by 3rr0r303YT on TikTok)"
+VERSION_CODENAME=trixie
+ID=noxis
+ID_LIKE=debian
+HOME_URL="https://github.com/Real3rr0r303YT/NoxisLinux"
+SUPPORT_URL="https://github.com/Real3rr0r303YT/NoxisLinux/issues"
+BUG_REPORT_URL="https://github.com/Real3rr0r303YT/NoxisLinux/issues"
+VENDOR_NAME="3rr0r303YT"
+VENDOR_URL="https://github.com/Real3rr0r303YT"
+LOGO=noxis
