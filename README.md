@@ -143,7 +143,65 @@ abgeschaltet. Drei Dinge daran sind leicht falsch zu machen:
   nicht, der Verweis ist dort tot. Der Firmware-Lader durchsucht `updates/`
   ohnehin vor `/lib/firmware`.
 
-### WLAN: offener Punkt – die Funkkalibrierung (Board-Daten)
+### WLAN: SAE (WPA3) laeuft in eine Zeitueberschreitung
+
+Die Anmeldung scheitert mit:
+
+```
+lim_process_sae_auth_timeout: SAE auth timeout sessionid 0 mlmstate 1D SmeState 4
+lim_process_mlm_auth_cnf: Auth Failure occurred
+```
+
+Der Treiber meldet SAE als Faehigkeit, bekommt den Handschlag aber nicht
+zustande. Router im gemischten WPA2/WPA3-Betrieb bieten SAE an, und
+NetworkManager nimmt es dann auch – zu sehen an
+
+```
+Config: added 'key_mgmt' value 'WPA-PSK WPA-PSK-SHA256 FT-PSK SAE FT-SAE'
+```
+
+Nach aussen sieht das wie ein falsches Passwort aus: NetworkManager meldet
+jeden Fehlschlag so, obwohl es nie zum Schluesselaustausch kommt.
+
+**Pro Profil zu schrauben nuetzt nichts.** Die Einstellungen-App legt bei
+jeder Passworteingabe ein neues Profil mit der vollen Standardliste an, also
+muss es ein Vorgabewert fuer alle Verbindungen sein:
+
+```ini
+# /etc/NetworkManager/conf.d/95-noxis-wpa2.conf
+[connection]
+wifi-sec.pmf=1
+```
+
+`pmf=1` heisst „Protected Management Frames aus". SAE setzt PMF zwingend
+voraus und faellt damit weg; es bleibt bei WPA2-PSK. Einzuspielen mit
+`noxis-diag.sh wpa2`, zurueck mit `noxis-diag.sh wpa3`. Danach das Netz im
+WLAN-Menue einmal vergessen, damit ein frisches Profil entsteht.
+
+**Abwaegung:** damit ist WPA3 auf dem Geraet aus und der Schutz der
+Verwaltungsrahmen entfaellt, der sonst Deauth-Angriffe erschwert. Das ist
+eine Notloesung fuer einen Treiber, dessen SAE nicht funktioniert, keine gute
+Einstellung an sich.
+
+### WLAN: was es NICHT war
+
+Drei Verdaechtigungen, die sich nicht bestaetigt haben – damit sie niemand
+noch einmal durchprobiert:
+
+- **Die Funkkalibrierung.** `Board id: 0` und `BDF VER is 0, FW and BDF ver
+  check skipped` sehen nach fehlenden Board-Daten aus, stehen aber auch auf
+  funktionierenden Geraeten so. `/lib/firmware/qca6750` ist ein Verweis auf
+  die Modem-Partition, und dort liegen `bdwlan.elf` (60000 B) und `regdb.bin`
+  (24278 B) – dieselben Groessen wie im ath11k-Archiv fuers Nothing Phone.
+- **Der Funkkanal und der Laendercode.** `iw reg get` meldet
+  `phy#0 (self-managed)` mit `country US`, `iw reg set DE` ist also
+  wirkungslos. Fuer 2,4 GHz spielt das keine Rolle: das Netz sendet auf
+  Kanal 6, der auch unter US erlaubt ist.
+- **Die zufaellige MAC** aus `noxis-opsec`
+  (`wifi.cloned-mac-address=random`). Mit `macperm` auf die echte MAC
+  umgestellt bleibt der Fehler derselbe.
+
+### WLAN: Funkkalibrierung (Board-Daten) – zum Nachschlagen
 
 Mit der Ini erscheint `wlan0` und NetworkManager findet Netze. Die Anmeldung
 scheitert aber, und zwar **nicht am Passwort**:

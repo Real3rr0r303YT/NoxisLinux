@@ -28,6 +28,8 @@
 #                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
 #                             auth_no_resp_received); zurueck mit macrand
+#   ./noxis-diag.sh wpa2      WPA2 erzwingen (SAE/WPA3 laeuft mit diesem
+#                             Treiber in eine Zeitueberschreitung); zurueck: wpa3
 #   ./noxis-diag.sh osk       DBus-Aktivierung fuer die Bildschirmtastatur
 #                             (sm.puri.OSK0) nachlegen
 #
@@ -536,6 +538,51 @@ osk)
   adb shell "chmod 644 $M/usr/share/dbus-1/services/sm.puri.OSK0.service" >/dev/null 2>&1
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
+  umount_root
+  ;;
+
+wpa2)
+  # "lim_process_sae_auth_timeout: SAE auth timeout" + "Auth Failure occurred":
+  # der Treiber meldet SAE (WPA3) als koennen, bekommt den Handschlag aber
+  # nicht zustande. Router im gemischten WPA2/WPA3-Betrieb bieten SAE an, und
+  # NetworkManager nimmt es dann auch.
+  #
+  # Pro Profil mit "nmcli c mod" zu schrauben nuetzt nichts: die
+  # Einstellungen-App legt bei jeder Passworteingabe ein NEUES Profil an, mit
+  # der vollen Standardliste WPA-PSK WPA-PSK-SHA256 FT-PSK SAE FT-SAE. Es muss
+  # also ein Vorgabewert fuer alle Verbindungen sein.
+  #
+  # pmf=1 heisst "Protected Management Frames aus". SAE setzt PMF zwingend
+  # voraus, also faellt SAE damit weg und es bleibt bei WPA2-PSK.
+  #
+  # ABWAEGUNG: damit ist WPA3 auf diesem Geraet aus, und der Schutz der
+  # Verwaltungsrahmen entfaellt - letzteres erschwert sonst
+  # Deauth-Angriffe. Das ist eine Notloesung fuer einen Treiber, dessen SAE
+  # nicht funktioniert, keine gute Einstellung an sich. Zurueck mit "wpa3".
+  need_recovery; mount_root
+  d="$M/etc/NetworkManager/conf.d"
+  adb shell "mkdir -p $d" >/dev/null 2>&1
+  adb shell "printf '# Noxis – WPA2 erzwingen, weil SAE (WPA3) mit diesem Treiber\n# in eine Zeitueberschreitung laeuft: lim_process_sae_auth_timeout.\n# pmf=1 schaltet Protected Management Frames ab; SAE setzt PMF voraus und\n# faellt damit weg. Zurueck: noxis-diag.sh wpa3\n[connection]\nwifi-sec.pmf=1\n' > $d/95-noxis-wpa2.conf"
+  adb shell "cat $d/95-noxis-wpa2.conf 2>/dev/null | sed 's/^/  /'"
+  adb shell "[ -f $d/95-noxis-wpa2.conf ] && echo da" 2>/dev/null | grep -q da \
+    || { umount_root; die "Datei nicht angelegt"; }
+  # Vorhandene Profile fuer dieses Netz loeschen, damit die App ein frisches
+  # mit dem neuen Vorgabewert anlegt.
+  adb shell "ls $M/etc/NetworkManager/system-connections/ 2>/dev/null | sed 's/^/  vorhandenes Profil: /'"
+  ok "WPA2 erzwungen – wirkt beim naechsten Start"
+  c "Danach im WLAN-Menue das Netz einmal VERGESSEN und neu verbinden,"
+  c "damit die App ein frisches Profil anlegt."
+  c "Rueckgaengig:  noxis-diag.sh wpa3"
+  umount_root
+  ;;
+
+wpa3)
+  # Die Notloesung von "wpa2" wieder entfernen.
+  need_recovery; mount_root
+  adb shell "rm -f $M/etc/NetworkManager/conf.d/95-noxis-wpa2.conf" >/dev/null 2>&1
+  adb shell "[ -e $M/etc/NetworkManager/conf.d/95-noxis-wpa2.conf ] && echo da" 2>/dev/null \
+    | grep -q da && { umount_root; die "Datei liess sich nicht entfernen"; }
+  ok "WPA3/PMF wieder zugelassen – wirkt beim naechsten Start"
   umount_root
   ;;
 
