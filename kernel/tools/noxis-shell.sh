@@ -35,9 +35,23 @@ reach() {
   return 1
 }
 
+# Die Abfrage genau dann ankuendigen, wenn sie auch kommt. Steht die
+# sudo-Berechtigung noch (etwa von noxis-try.sh kurz vorher), fragt sudo gar
+# nicht - eine Ankuendigung ins Leere fuehrt dann dazu, dass man sein Passwort
+# ins offene Terminal tippt, wo es im Klartext erscheint.
+ensure_sudo() {
+  sudo -n true 2>/dev/null && return 0
+  echo
+  c "Jetzt kommt die sudo-Abfrage: dein PC-Passwort, NICHT die Handy-PIN."
+  c "Die Eingabe bleibt unsichtbar. Erscheinen beim Tippen Zeichen,"
+  c "ist es KEINE Passwortabfrage – dann nichts eingeben und abbrechen."
+  sudo -v || die "ohne sudo laesst sich die Schnittstelle nicht einrichten"
+}
+
 bring_up() {
   reach && return 0
   c "suche das USB-Netz des Handys …"
+  ensure_sudo
   local i n drv
   for i in $(seq 1 30); do
     for n in $(ls /sys/class/net); do
@@ -45,8 +59,6 @@ bring_up() {
       case "$drv" in cdc_ncm|cdc_ether|rndis_host) ;; *) continue ;; esac
       ip -4 addr show "$n" 2>/dev/null | grep -q 172.16.42.2 && continue
       c "Schnittstelle $n ($drv)"
-      c "sudo fragt gleich nach deinem PC-Passwort (nicht der Handy-PIN) –"
-      c "es richtet die Schnittstelle am Rechner ein."
       sudo ip link set "$n" up
       sudo ip addr add "$ME" dev "$n" 2>/dev/null || true
       sleep 2
@@ -101,7 +113,9 @@ case "${1:-}" in
     scp "${SSH_OPTS[@]}" "$src" "$USER_NAME@$IP:$dst" && ok "kopiert nach $dst"
     ;;
   "")
-    c "Shell als $USER_NAME@$IP – das Passwort ist deine Noxis-PIN"
+    echo
+  c "Jetzt kommt die SSH-Abfrage: deine Noxis-PIN, NICHT das PC-Passwort."
+  c "Auch hier bleibt die Eingabe unsichtbar."
     ssh "${SSH_OPTS[@]}" "$USER_NAME@$IP"
     ;;
   *)
