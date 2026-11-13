@@ -205,6 +205,16 @@ for bad, why in ((("", "1234", None), "leerer Benutzer"), (("../root", "1234", N
     except ValueError:
         check(f"set_user lehnt ab: {why}", True)
 
+# Sprache/Zeitzone und PIN sind getrennt: ein Image kann mit fester Sprache
+# gebaut werden, die PIN muss trotzdem jedes Mal gesetzt werden.
+TD = os.path.join(T, "doneroot")
+os.makedirs(os.path.join(TD, "var/lib/noxis"), exist_ok=True)
+nxsetup.apply("de", "Europe/Berlin", root=TD, compile_schemas=False)
+check("apply setzt die Sprach-Markierung", nxsetup.is_done(TD))
+check("apply setzt NICHT die PIN-Markierung", not nxsetup.user_is_done(TD))
+nxsetup.set_user("noxis", "4711", None, root=TD)
+check("set_user setzt die PIN-Markierung", nxsetup.user_is_done(TD))
+
 missing = [k for k in ("set_pin", "pin_repeat", "pin_mismatch", "pin_short", "later")
            if k not in nxi18n.T or len(nxi18n.T[k]) != len(nxi18n.ORDER)]
 check("PIN-Texte in allen sieben Sprachen", not missing, missing)

@@ -177,13 +177,14 @@ class Authenticator:
             lang = req.get("lang") if req.get("lang") in setup.LANGS else "en"
             root = self.conf.get("setup_root", "/")
             tz, source, zones = setup.suggest(lang, setup.detect_mcc(), root)
-            return {"type": "noxis_setup_info", "needed": not setup.is_done(root), "suggested": tz,
+            return {"type": "noxis_setup_info", "needed": not setup.is_done(root),
+                    "user_needed": not setup.user_is_done(root), "suggested": tz,
                     "source": source, "zones": zones, "all_zones": setup.all_zones(root)}
         if t == "noxis_setup_user":
             # Nur vor dem Abschluss der Ersteinrichtung: danach aendert man die
             # PIN angemeldet in den Einstellungen, nicht vom Anmeldebildschirm.
             root = self.conf.get("setup_root", "/")
-            if setup.is_done(root):
+            if setup.user_is_done(root):
                 return err("error", "setup already done")
             user = setup.default_user()
             if not user:

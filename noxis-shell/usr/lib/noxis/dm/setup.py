@@ -10,6 +10,10 @@ from i18n import LANGS  # noqa: E402
 
 ZONEINFO = "usr/share/zoneinfo"
 DONE = "var/lib/noxis/setup-done"
+# Eigene Markierung fuer die PIN: Sprache und Zeitzone koennen beim Bauen des
+# Images feststehen, die PIN darf das nie. Sonst traegt jedes ausgelieferte
+# Image dieselbe, im Quelltext nachlesbare PIN.
+USER_DONE = "var/lib/noxis/setup-user-done"
 TZ_RE = re.compile(r"^(UTC|[A-Z][A-Za-z_+-]*(/[A-Za-z0-9_+-]+){1,2})$")
 
 # Mobile country code → ISO country (ITU-T E.212)
@@ -105,6 +109,10 @@ def is_done(root="/"):
     return os.path.exists(os.path.join(root, DONE))
 
 
+def user_is_done(root="/"):
+    return os.path.exists(os.path.join(root, USER_DONE))
+
+
 def _write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".noxis-tmp"
@@ -160,6 +168,7 @@ def set_user(user, pin=None, fullname=None, root="/"):
         if bad:
             raise ValueError(f"invalid pin: {bad}")
     if root != "/":
+        _write(os.path.join(root, USER_DONE), "set\n")
         return
     try:
         if pin is not None:
@@ -173,6 +182,8 @@ def set_user(user, pin=None, fullname=None, root="/"):
                 raise RuntimeError("usermod failed")
     except subprocess.SubprocessError as e:
         raise RuntimeError(str(e)) from e
+    if pin is not None:
+        _write(os.path.join(root, USER_DONE), "set\n")
 
 
 def apply(lang, tz, root="/", compile_schemas=True):

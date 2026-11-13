@@ -220,11 +220,16 @@ class Greeter(Gtk.ApplicationWindow):
                 g.close()
         except (GreetdError, OSError):
             return
-        if info.get("type") == "noxis_setup_info" and info.get("needed"):
+        if info.get("type") == "noxis_setup_info" and (info.get("needed") or info.get("user_needed")):
             GLib.idle_add(self.start_setup, info)
 
     def start_setup(self, info):
         self.setup_data = info
+        if not info.get("needed"):
+            # Sprache und Zeitzone standen schon beim Bauen fest -- dann bleibt
+            # nur die PIN, und die wird trotzdem abgefragt.
+            self.show_pin_page(None)
+            return False
         self.stack.add_named(self.build_lang_page(), "lang")
         self.stack.set_visible_child_name("lang")
         return False
@@ -363,12 +368,13 @@ class Greeter(Gtk.ApplicationWindow):
             grid.attach(b, i % 3, i // 3, 1, 1)
         page.append(grid)
         nav = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
-        back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
-        back.connect("clicked", lambda *_: self.stack.set_visible_child_name("tz"))
-        later = Gtk.Button(label=i18n.tr(lang, "later"), css_classes=["noxis-chip"])
-        later.connect("clicked", lambda *_: self.finish_setup(self.sp_tz, None))
-        nav.append(back)
-        nav.append(later)
+        if self.sp_tz is not None:
+            back = Gtk.Button(label=i18n.tr(lang, "back"), css_classes=["noxis-chip"])
+            back.connect("clicked", lambda *_: self.stack.set_visible_child_name("tz"))
+            nav.append(back)
+        # Kein "Später": eine im Quelltext nachlesbare Standard-PIN, die in jedem
+        # ausgelieferten Image dieselbe ist, waere keine PIN. Scheitert das
+        # Setzen, bleibt die bisherige gueltig und man kann es erneut versuchen.
         page.append(nav)
         self.setup_msg = self.sp_msg
         return page
@@ -417,7 +423,7 @@ class Greeter(Gtk.ApplicationWindow):
                     ok, detail = True, ""
                     if pin:
                         ok, detail = g.setup_user(pin=pin)
-                    if ok:
+                    if ok and tz:
                         ok, detail = g.setup(self.lang, tz)
                 finally:
                     g.close()
@@ -431,8 +437,9 @@ class Greeter(Gtk.ApplicationWindow):
         if not ok:
             self.setup_msg.set_label(f"{i18n.tr(self.lang, 'setup_fail')}: {detail}")
             return False
-        os.environ["TZ"] = f":/usr/share/zoneinfo/{tz}"
-        time.tzset()
+        if tz:
+            os.environ["TZ"] = f":/usr/share/zoneinfo/{tz}"
+            time.tzset()
         self.apply_texts()
         self.stack.set_visible_child_name("login")
         return False
