@@ -1,0 +1,133 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# USB-Netz im laufenden Noxis: der PC bekommt eine Shell aufs Handy.
+#
+# Das Handy meldet sich als Netzwerkkarte am USB-Kabel, bekommt 172.16.42.1,
+# und sshd nimmt darauf Verbindungen an. Vom PC aus:  kernel/tools/noxis-shell.sh
+#
+# Derselbe Aufbau wie im Rescue (kernel/initramfs/init, usb_debug) – dort ist
+# er auf diesem Geraet erprobt. Unterschied: kein telnetd, sondern SSH, und die
+# Firewall bekommt eine eng begrenzte Ausnahme.
+#
+# ACHTUNG, bewusste Abwaegung: Noxis blockt sonst JEDEN eingehenden Verkehr.
+# Dieser Dienst oeffnet SSH – aber ausschliesslich auf usb0, also nur fuer
+# jemanden, der ein Kabel ansteckt. Kein WLAN, kein Mobilfunk. Darum ist der
+# Dienst auch nicht von selbst an; er wird mit "noxis-diag.sh usbnet" oder mit
+# "systemctl enable --now noxis-usbnet" eingeschaltet.
+set -u
+
+G=/sys/kernel/config/usb_gadget/noxis
+IP=172.16.42.1/24
+
+log() { echo "noxis-usbnet: $*"; }
+
+rebind_dwc3() {
+  d=""
+  for c in /sys/bus/platform/drivers/msm-dwc3 /sys/bus/platform/drivers/dwc3; do
+    [ -d "$c" ] && { d="$c"; break; }
+  done
+  [ -n "$d" ] || { log "kein dwc3-Treiber in sysfs"; return 1; }
+  for dev in /sys/bus/platform/devices/*ssusb* /sys/bus/platform/devices/*dwc3*; do
+    [ -e "$dev" ] || continue
+    b=${dev##*/}
+    echo "$b" > "$d/unbind" 2>/dev/null
+    sleep 0.2
+    echo "$b" > "$d/bind"   2>/dev/null
+  done
+}
+
+wait_udc() {
+  i=0; udc=""; rebound=0
+  while [ "$i" -lt 150 ]; do
+    udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
+    [ -n "$udc" ] && break
+    if [ "$i" -ge 50 ] && [ "$rebound" -eq 0 ]; then rebound=1; rebind_dwc3; fi
+    sleep 0.1; i=$((i + 1))
+  done
+  [ -n "$udc" ] || return 1
+  echo "$udc"
+}
+
+# Die Ausnahme muss IN die Kette von noxis-opsec. Eine eigene Tabelle nuetzt
+# nichts: in nftables werden alle Basisketten durchlaufen, und ein "accept" in
+# der einen hebt ein "drop" in der anderen nicht auf. Darum haengen wir die
+# Regeln zur Laufzeit ein und nehmen sie beim Stoppen am Kommentar wieder raus.
+# Die ausgelieferte firewall.nft bleibt unveraendert: ohne diesen Dienst ist
+# auch die Luecke weg.
+TAG="noxis-usbnet"
+
+firewall_open() {
+  command -v nft >/dev/null 2>&1 || return 0
+  nft list table inet noxis >/dev/null 2>&1 || { log "Firewall-Tabelle nicht aktiv – nichts zu oeffnen"; return 0; }
+  firewall_close
+  nft insert rule inet noxis input iifname \"usb0\" tcp dport 22 accept comment \"$TAG\" 2>/dev/null
+  nft insert rule inet noxis input iifname \"usb0\" icmp type echo-request accept comment \"$TAG\" 2>/dev/null
+  nft insert rule inet noxis output oifname \"usb0\" accept comment \"$TAG\" 2>/dev/null
+  log "Firewall: SSH und Ping auf usb0 frei (sonst nichts)"
+}
+
+firewall_close() {
+  command -v nft >/dev/null 2>&1 || return 0
+  nft list table inet noxis >/dev/null 2>&1 || return 0
+  # Nach Handle loeschen; die Liste von hinten abarbeiten, damit sich die
+  # uebrigen Handles nicht verschieben.
+  for ch in input output; do
+    nft -a list chain inet noxis "$ch" 2>/dev/null \
+      | grep "$TAG" | sed -n 's/.*# handle \([0-9]*\)$/\1/p' | sort -rn \
+      | while read -r h; do
+          [ -n "$h" ] && nft delete rule inet noxis "$ch" handle "$h" 2>/dev/null
+        done
+  done
+}
+
+start() {
+  [ -d /sys/kernel/config ] || mount -t configfs none /sys/kernel/config 2>/dev/null
+  modprobe libcomposite 2>/dev/null
+
+  if [ -e "$G/UDC" ] && [ -n "$(cat "$G/UDC" 2>/dev/null)" ]; then
+    log "Gadget laeuft schon"
+  else
+    udc=$(wait_udc) || { log "kein USB-Controller (UDC) gefunden"; return 1; }
+    log "UDC: $udc"
+    mkdir -p "$G" || return 1
+    echo 0x18D1 > "$G/idVendor"  2>/dev/null
+    echo 0xD001 > "$G/idProduct" 2>/dev/null
+    mkdir -p "$G/strings/0x409"
+    echo "Noxis"       > "$G/strings/0x409/manufacturer" 2>/dev/null
+    echo "Noxis Linux" > "$G/strings/0x409/product"      2>/dev/null
+    echo "noxis"       > "$G/strings/0x409/serialnumber" 2>/dev/null
+    # ncm ist sauberer, rndis versteht aber jeder aeltere Kernel.
+    fn=ncm.usb0
+    mkdir -p "$G/functions/$fn" 2>/dev/null || {
+      fn=rndis.usb0; mkdir -p "$G/functions/$fn" || { log "keine Netz-Funktion moeglich"; return 1; }
+    }
+    mkdir -p "$G/configs/c.1/strings/0x409"
+    echo "$fn" > "$G/configs/c.1/strings/0x409/configuration" 2>/dev/null
+    ln -s "$G/functions/$fn" "$G/configs/c.1/" 2>/dev/null
+    echo "$udc" > "$G/UDC" || { log "UDC binden fehlgeschlagen"; return 1; }
+    log "Funktion $fn an $udc"
+    sleep 1
+  fi
+
+  ip link set usb0 up 2>/dev/null
+  ip addr add "$IP" dev usb0 2>/dev/null
+  firewall_open
+  systemctl is-active ssh >/dev/null 2>&1 || systemctl start ssh 2>/dev/null \
+    || systemctl start sshd 2>/dev/null || log "sshd laeuft nicht (openssh-server fehlt?)"
+  log "bereit: ssh auf 172.16.42.1 (PC: kernel/tools/noxis-shell.sh)"
+}
+
+stop() {
+  firewall_close
+  [ -e "$G/UDC" ] && echo "" > "$G/UDC" 2>/dev/null
+  log "aus"
+}
+
+case "${1:-start}" in
+  start) start ;;
+  stop)  stop ;;
+  *)     echo "Nutzung: noxis-usbnet start|stop"; exit 1 ;;
+esac

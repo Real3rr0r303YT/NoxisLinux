@@ -21,6 +21,8 @@
 #                             bzw. persist ins Rootfs legen (WLAN-Treiber)
 #   ./noxis-diag.sh vendorfw  ~/noxis-backup/vendor-firmware ins /lib/firmware
 #                             des Systems schieben (Board-Daten fuer WLAN/BT)
+#   ./noxis-diag.sh usbnet    USB-Netz + SSH einrichten: danach gibt es mit
+#                             kernel/tools/noxis-shell.sh eine Shell vom PC
 #   ./noxis-diag.sh osk       DBus-Aktivierung fuer die Bildschirmtastatur
 #                             (sm.puri.OSK0) nachlegen
 #
@@ -457,6 +459,55 @@ osk)
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
   umount_root
+  ;;
+
+usbnet)
+  # Schluss mit dem Abtippen auf der Bildschirmtastatur: Noxis meldet sich am
+  # USB-Kabel als Netzwerkkarte, und der PC bekommt per SSH eine Shell darauf.
+  # Holt openssh-server mit Abhaengigkeiten, legt Dienst und Skript ins System
+  # und schaltet beides ein. Ohne Neubau.
+  cache="$HOME/noxis-backup/debs/openssh"
+  mkdir -p "$cache"
+  if ! ls "$cache"/*.deb >/dev/null 2>&1; then
+    command -v docker >/dev/null || die "docker fehlt"
+    if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+      c "qemu-aarch64 fuer Docker registrieren"
+      sudo docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 || true
+    fi
+    c "lade openssh-server (arm64) mit Abhaengigkeiten …"
+    sudo docker run --rm --platform linux/arm64 -v "$cache:/out" debian:trixie sh -c \
+      "apt-get update -qq && apt-get install -y -q --download-only -o Dir::Cache::archives=/out openssh-server && chmod 644 /out/*.deb" \
+      || die "Download fehlgeschlagen"
+    sudo chown "$(id -u):$(id -g)" "$cache"/*.deb 2>/dev/null || true
+  fi
+  ls "$cache"/*.deb | sed 's|.*/|  |'
+
+  need_recovery; mount_root
+  adb shell "mkdir -p $M/var/cache/noxis-debs" >/dev/null 2>&1
+  for f in "$cache"/*.deb; do
+    adb push "$f" "$M/var/cache/noxis-debs/" >/dev/null 2>&1 || die "push $(basename "$f") fehlgeschlagen"
+  done
+  # Der Dienst, der die .deb beim naechsten Start installiert
+  for rel in noxis-hw/usr/lib/noxis/hw/noxis-install-debs \
+             noxis-hw/usr/lib/systemd/system/noxis-install-debs.service \
+             noxis-hw/usr/lib/noxis/hw/noxis-usbnet \
+             noxis-hw/usr/lib/systemd/system/noxis-usbnet.service; do
+    [ -f "$REPO/$rel" ] || die "$rel fehlt – erst: git pull"
+    adb push "$REPO/$rel" "$M/${rel#*/}" >/dev/null 2>&1 || die "push $rel fehlgeschlagen"
+  done
+  adb shell "chmod 755 $M/usr/lib/noxis/hw/noxis-install-debs $M/usr/lib/noxis/hw/noxis-usbnet; \
+    chmod 644 $M/usr/lib/systemd/system/noxis-install-debs.service $M/usr/lib/systemd/system/noxis-usbnet.service; \
+    mkdir -p $M/etc/systemd/system/multi-user.target.wants; \
+    ln -sf /usr/lib/systemd/system/noxis-install-debs.service $M/etc/systemd/system/multi-user.target.wants/noxis-install-debs.service; \
+    ln -sf /usr/lib/systemd/system/noxis-usbnet.service $M/etc/systemd/system/multi-user.target.wants/noxis-usbnet.service" \
+    >/dev/null 2>&1
+  adb shell "[ -L $M/etc/systemd/system/multi-user.target.wants/noxis-usbnet.service ] && echo yes" 2>/dev/null \
+    | grep -q yes || { umount_root; die "Dienst nicht verknuepft"; }
+  ok "USB-Netz eingerichtet – greift beim naechsten Start"
+  umount_root
+  echo
+  c "Danach vom PC aus:  kernel/tools/noxis-shell.sh"
+  c "Der erste Start dauert etwas laenger, weil openssh installiert wird."
   ;;
 
 vendorfw)

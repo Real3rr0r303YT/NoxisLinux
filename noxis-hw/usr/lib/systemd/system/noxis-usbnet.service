@@ -1,0 +1,17 @@
+[Unit]
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# USB-Netz fuers Entwickeln: Shell vom PC aufs laufende Noxis.
+# Nicht von selbst an – siehe Hinweis in /usr/lib/noxis/hw/noxis-usbnet.
+Description=Noxis: USB-Netz und SSH ueber das Kabel
+After=network-pre.target nftables.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/noxis/hw/noxis-usbnet start
+ExecStop=/usr/lib/noxis/hw/noxis-usbnet stop
+
+[Install]
+WantedBy=multi-user.target
