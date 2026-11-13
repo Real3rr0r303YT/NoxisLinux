@@ -24,6 +24,8 @@
 #   ./noxis-diag.sh usbnet    USB-Netz + SSH einrichten: danach gibt es mit
 #                             kernel/tools/noxis-shell.sh eine Shell vom PC
 #   ./noxis-diag.sh usbnet-off  denselben Dienst wieder abschalten
+#   ./noxis-diag.sh bdf       Funkkalibrierung: Board-Dateien suchen, das von
+#                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh osk       DBus-Aktivierung fuer die Bildschirmtastatur
 #                             (sm.puri.OSK0) nachlegen
 #
@@ -79,6 +81,15 @@ umount_root() {
 # Neustart weg – ohne jede Fehlermeldung, solange die Verzeichnisse zufaellig
 # existieren. Genau so sind die Board-Daten einmal spurlos verschwunden.
 # Darum den echten Pfad im gemounteten Rootfs ermitteln.
+# mkdir -p legt im Recovery keine Zwischenebenen an, also Ebene fuer Ebene.
+mkdirs() {
+  local path="" part
+  for part in $(echo "$1" | tr '/' ' '); do
+    path="$path/$part"
+    adb shell "[ -d $path ] || mkdir $path 2>&1" | sed '/^$/d;s/^/    /'
+  done
+}
+
 fwdir() {
   if adb shell "[ -L $M/lib ] && echo yes" 2>/dev/null | grep -q yes; then
     echo "$M/usr/lib/firmware"
@@ -478,14 +489,6 @@ wlan)
   # wir den bestehenden Verweis nicht anfassen – der zeigt im laufenden System
   # auf echte Firmware und soll bleiben.
   #
-  # mkdir -p legt im Recovery keine Zwischenebenen an, also Ebene fuer Ebene.
-  mkdirs() {
-    local path="" part
-    for part in $(echo "$1" | tr '/' ' '); do
-      path="$path/$part"
-      adb shell "[ -d $path ] || mkdir $path 2>&1" | sed '/^$/d;s/^/    /'
-    done
-  }
   n=0
   for d in qca_cld3_qca6750 qca6750; do
     tgt="$FW/updates/wlan/qca_cld/$d"
@@ -532,6 +535,64 @@ osk)
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
   umount_root
+  ;;
+
+bdf)
+  # "Board id: 0" und "BDF VER is 0, FW and BDF ver check skipped": die
+  # Firmware laeuft ohne gueltige Funkkalibrierung. Dann empfaengt das Modul,
+  # aber seine Sendungen kommen nicht an - das Bild von auth_no_resp_received.
+  #
+  # Der CNSS-Treiber kennt fuer die Board-Datei die Namen bdwlan.elf,
+  # bdwlan.bin, die Praefixe bdwlan.e / bdwlan.b und bdwlan.dmy. Bei Nothing
+  # liegt sie als qca6750/bdwlan.elf samt regdb.bin in der MODEM-Partition,
+  # nicht in /vendor/firmware - dort sind nur die bdwlan.bXX.
+  #
+  # Dazu mein eigener Fehler: "vendorfw" hat ein echtes Verzeichnis
+  # /lib/firmware/qca6750 angelegt. noxis-firmware-links legt seinen Verweis
+  # auf die Modem-Partition aber nur an, wenn dort NICHTS Echtes steht - und
+  # ueberspringt ihn seitdem. Dieser Modus raeumt das auf.
+  need_recovery
+  c "modem und vendor einhaengen"
+  adb shell "mkdir -p /tmp/mdm /tmp/vnd
+    for n in modem_a modem; do mount -t vfat -o ro /dev/block/by-name/\$n /tmp/mdm 2>/dev/null && break; done
+    for n in vendor_a vendor; do
+      for t in erofs ext4 auto; do mount -t \$t -o ro /dev/block/by-name/\$n /tmp/vnd 2>/dev/null && break 2; done
+    done
+    echo \"  modem: \$(ls /tmp/mdm 2>/dev/null | wc -l) Eintraege, vendor: \$(ls /tmp/vnd 2>/dev/null | wc -l)\""
+  c "suche Board-Dateien (bdwlan*, regdb*)"
+  adb shell "find /tmp/mdm /tmp/vnd -maxdepth 3 \( -name 'bdwlan*' -o -name 'regdb*' \) 2>/dev/null \
+    | while read -r f; do echo \"  \$(wc -c < \"\$f\") B  \$f\"; done" | sort -k3
+
+  mount_root
+  FW=$(fwdir)
+  c "Zustand im Rootfs: ${FW#$M}/qca6750"
+  adb shell "if [ -L $FW/qca6750 ]; then echo '  Verweis auf '\$(readlink $FW/qca6750);
+             elif [ -d $FW/qca6750 ]; then echo '  echtes Verzeichnis (verdeckt den Verweis!)'; ls $FW/qca6750 | head -8;
+             else echo '  nicht vorhanden'; fi"
+  # Das von vendorfw angelegte echte Verzeichnis entfernen, damit
+  # noxis-firmware-links beim naechsten Start wieder seinen Verweis auf die
+  # Modem-Partition legen kann. Die bdwlan.bXX bleiben erhalten - sie liegen
+  # ohnehin in /vendor/firmware, das in firmware_class.path steht.
+  if adb shell "[ -d $FW/qca6750 ] && [ ! -L $FW/qca6750 ] && echo ja" 2>/dev/null | grep -q ja; then
+    c "entferne das verdeckende Verzeichnis"
+    adb shell "rm -rf $FW/qca6750" >/dev/null 2>&1
+    adb shell "[ -e $FW/qca6750 ] && echo '  FEHLER: noch da' || echo '  weg – der Verweis entsteht beim naechsten Start'"
+  fi
+  # Falls die Modem-Partition eine .elf-Board-Datei hat, zusaetzlich nach
+  # updates/ legen: der Firmware-Lader durchsucht das vor /lib/firmware, und
+  # dort kann kein Verweis dazwischenkommen.
+  for f in bdwlan.elf bdwlan.bin regdb.bin; do
+    src=$(adb shell "ls /tmp/mdm/qca6750/$f 2>/dev/null" | tr -d '\r')
+    [ -n "$src" ] || continue
+    mkdirs "$FW/updates/qca6750" 2>/dev/null || true
+    adb shell "mkdir -p $FW/updates/qca6750; cp $src $FW/updates/qca6750/$f 2>&1; \
+      [ -f $FW/updates/qca6750/$f ] && echo \"  ok updates/qca6750/$f: \$(wc -c < $FW/updates/qca6750/$f) B\" || echo \"  FEHLT $f\""
+    bdir="$HOME/noxis-backup/vendor-firmware/updates/qca6750"
+    mkdir -p "$bdir" && adb pull "$src" "$bdir/$f" >/dev/null 2>&1 && c "ins Backup: ${bdir#$HOME/}/$f"
+  done
+  adb shell "umount /tmp/mdm /tmp/vnd 2>/dev/null" >/dev/null 2>&1
+  umount_root
+  c "Danach pruefen:  sudo dmesg|grep -iE 'bdf|board id'|tail"
   ;;
 
 usbnet-off)
@@ -605,9 +666,15 @@ vendorfw)
     || die "$src ist leer – erst: kernel/tools/pull-firmware.sh (Handy in der Recovery)"
   c "$(du -sh "$src" | cut -f1) aus $src"
   need_recovery; mount_root
-  FW=$(fwdir)
+  FW=$(fwdir)/updates
   c "Firmware-Ablage im Rootfs: ${FW#$M}"
-  adb shell "mkdir -p $FW" >/dev/null 2>&1
+  # Nach updates/, nicht direkt nach /lib/firmware. Dort legt
+  # noxis-firmware-links beim Start Verweise auf die Modem-Partition an - und
+  # zwar nur, wenn kein echtes Verzeichnis gleichen Namens im Weg steht. Ein
+  # hierher geschobenes qca6750 hat genau diesen Verweis verdeckt und damit
+  # die Board-Datei bdwlan.elf unerreichbar gemacht. updates/ wird vom
+  # Firmware-Lader ohnehin zuerst durchsucht und kollidiert mit nichts.
+  mkdirs "$FW"
   # Einzeln schieben: adb push eines Ordners legt ihn sonst verschachtelt ab.
   n=0
   for f in "$src"/*; do
