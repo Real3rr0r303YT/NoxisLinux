@@ -451,37 +451,62 @@ wlan)
 
   # Auch ins Backup legen, das der Rootfs-Bau nach /lib/firmware spiegelt -
   # sonst ist die Datei beim naechsten Bau wieder weg.
+  # Auch hier updates/: beim Start legt noxis-firmware-links einen Verweis
+  # "wlan" nach /vendor/firmware_mnt/image/wlan an, der eine echte Ablage
+  # gleichen Namens verdecken kann. updates/ bleibt davon unberuehrt und wird
+  # vom Firmware-Lader vorher durchsucht.
   for d in qca_cld3_qca6750 qca6750; do
-    bdir="$HOME/noxis-backup/vendor-firmware/wlan/qca_cld/$d"
+    bdir="$HOME/noxis-backup/vendor-firmware/updates/wlan/qca_cld/$d"
     mkdir -p "$bdir"
     adb pull "$src" "$bdir/WCNSS_qcom_cfg.ini" >/dev/null 2>&1 \
       && c "ins Backup: ${bdir#$HOME/}" || c "Backup-Kopie fehlgeschlagen ($d)"
   done
+  rm -rf "$HOME/noxis-backup/vendor-firmware/wlan/qca_cld" 2>/dev/null || true
 
   mount_root
   FW=$(fwdir)
   c "Firmware-Ablage im Rootfs: ${FW#$M}"
+  # $FW/wlan ist ein Verweis auf /vendor/firmware_mnt/image/wlan (einer der
+  # 335, die noxis-firmware-links anlegt). Im Recovery haengt firmware_mnt
+  # nicht, der Verweis ist also tot und darin laesst sich nichts anlegen.
+  #
+  # Darum nach updates/: der Firmware-Lader des Kernels sucht
+  #   1. firmware_class.path  2. /lib/firmware/updates/<release>
+  #   3. /lib/firmware/updates  4. /lib/firmware/<release>  5. /lib/firmware
+  # updates/ ist ein echtes Verzeichnis und liegt vor dem Verweis. So muessen
+  # wir den bestehenden Verweis nicht anfassen – der zeigt im laufenden System
+  # auf echte Firmware und soll bleiben.
+  #
+  # mkdir -p legt im Recovery keine Zwischenebenen an, also Ebene fuer Ebene.
+  mkdirs() {
+    local path="" part
+    for part in $(echo "$1" | tr '/' ' '); do
+      path="$path/$part"
+      adb shell "[ -d $path ] || mkdir $path 2>&1" | sed '/^$/d;s/^/    /'
+    done
+  }
+  n=0
   for d in qca_cld3_qca6750 qca6750; do
-    adb shell "mkdir -p $FW/wlan/qca_cld/$d 2>&1; \
-      cp $src $FW/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini 2>&1; \
-      [ -f $FW/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini ] \
-        && echo \"  ok $d: \$(wc -c < $FW/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini) Bytes\" \
+    tgt="$FW/updates/wlan/qca_cld/$d"
+    mkdirs "$tgt"
+    adb shell "cp $src $tgt/WCNSS_qcom_cfg.ini 2>&1; \
+      [ -f $tgt/WCNSS_qcom_cfg.ini ] \
+        && echo \"  ok updates/wlan/qca_cld/$d: \$(wc -c < $tgt/WCNSS_qcom_cfg.ini) Bytes\" \
         || echo \"  FEHLT $d\""
   done
-  n=$(adb shell "ls $FW/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
+  n=$(adb shell "ls $FW/updates/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
   if [ "${n:-0}" -eq 0 ]; then
     c "cp im Recovery ohne Wirkung – schiebe die Datei ueber den PC"
     tmpf=$(mktemp)
     adb pull "$src" "$tmpf" >/dev/null 2>&1 || die "konnte $src nicht holen"
     for d in qca_cld3_qca6750 qca6750; do
-      adb shell "mkdir -p $FW/wlan/qca_cld/$d" >/dev/null 2>&1
-      adb push "$tmpf" "$FW/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini" 2>&1 | tail -1
+      adb push "$tmpf" "$FW/updates/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini" 2>&1 | tail -1
     done
     rm -f "$tmpf"
-    n=$(adb shell "ls $FW/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
+    n=$(adb shell "ls $FW/updates/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
   fi
   c "jetzt im Rootfs:"
-  adb shell "ls -l $FW/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null || echo '  (nichts)'"
+  adb shell "ls -l $FW/updates/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null || echo '  (nichts)'"
   adb shell "umount /tmp/vnd 2>/dev/null" >/dev/null 2>&1
   umount_root
   [ "${n:-0}" -ge 1 ] || die "Datei nicht ins Rootfs gekommen"
