@@ -21,6 +21,8 @@
 #                             bzw. persist ins Rootfs legen (WLAN-Treiber)
 #   ./noxis-diag.sh vendorfw  ~/noxis-backup/vendor-firmware ins /lib/firmware
 #                             des Systems schieben (Board-Daten fuer WLAN/BT)
+#   ./noxis-diag.sh osk       DBus-Aktivierung fuer die Bildschirmtastatur
+#                             (sm.puri.OSK0) nachlegen
 #
 # Warum nicht das Journal: noxis-opsec setzt Storage=volatile, das Journal
 # liegt also nur im RAM und ist nach dem Ausschalten weg. Und der
@@ -423,6 +425,25 @@ wlan)
   umount_root
   [ "$n" -gt 0 ] && ok "$n Datei(en) eingelegt – naechster Noxis-Start probiert es damit" \
                  || c "nichts gefunden. Dann schick mir die Zeilen von oben, dann suchen wir das Ziel anders."
+  ;;
+
+osk)
+  # Journal: 'phosh: Unable to toggle OSK: ... The name sm.puri.OSK0 was not
+  # provided by any .service files'. squeekboard ist installiert und
+  # screen-keyboard-enabled steht auf true, aber nichts startet die Tastatur:
+  # die DBus-Aktivierungsdatei fehlt. Die legen wir hier nach.
+  f=noxis-shell/usr/share/dbus-1/services/sm.puri.OSK0.service
+  [ -f "$REPO/$f" ] || die "$REPO/$f fehlt – erst: git pull"
+  need_recovery; mount_root
+  adb shell "[ -x $M/usr/bin/squeekboard ] && echo da" 2>/dev/null | grep -q da \
+    || { umount_root; die "squeekboard ist nicht installiert"; }
+  adb shell "mkdir -p $M/usr/share/dbus-1/services" >/dev/null 2>&1
+  adb push "$REPO/$f" "$M/usr/share/dbus-1/services/sm.puri.OSK0.service" >/dev/null 2>&1 \
+    || { umount_root; die "push fehlgeschlagen"; }
+  adb shell "chmod 644 $M/usr/share/dbus-1/services/sm.puri.OSK0.service" >/dev/null 2>&1
+  adb shell "ls -la $M/usr/share/dbus-1/services/"
+  ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
+  umount_root
   ;;
 
 vendorfw)

@@ -197,6 +197,15 @@ SLOT=$(detect_slot)
 ROOT_PART=$(cmdline_get noxis.root) || ROOT_PART=userdata
 
 log "boot: mode=$(bootconfig_get androidboot.mode) force_normal_boot=$(bootconfig_get androidboot.force_normal_boot) bootreason=$(bootconfig_get androidboot.bootreason)"
+# Alle drei Werte kamen leer zurueck, obwohl der Kernel mit "bootconfig"
+# startet. Darum hier, woran es liegt: fehlt die Datei, ist sie leer, oder
+# heissen die Schluessel anders? Ohne das raten wir bei Slot und Rescue.
+if [ -r "$BOOTCONFIG_FILE" ]; then
+  log "bootconfig: $(wc -l < "$BOOTCONFIG_FILE") Zeilen; androidboot-Schluessel: $(grep -c androidboot "$BOOTCONFIG_FILE" 2>/dev/null)"
+  log "bootconfig erste Zeilen: $(head -c 300 "$BOOTCONFIG_FILE" | tr '\n' '|')"
+else
+  log "bootconfig: $BOOTCONFIG_FILE nicht lesbar"
+fi
 want_rescue && rescue_mode
 
 if [ "$(cmdline_get noxis.debug)" = 1 ]; then

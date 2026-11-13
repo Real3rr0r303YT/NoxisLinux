@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# Bildschirmtastatur per DBus startbar machen.
+#
+# Phosh fordert die Tastatur ueber den Busnamen sm.puri.OSK0 an. Ohne eine
+# solche Datei antwortet DBus mit
+#   "The name sm.puri.OSK0 was not provided by any .service files"
+# und es erscheint nie eine Tastatur – auch wenn squeekboard installiert und
+# screen-keyboard-enabled gesetzt ist. In Debian startet gnome-session die
+# Tastatur sonst als Sitzungskomponente ueber einen update-alternatives-Verweis;
+# das greift hier nicht. DBus-Aktivierung startet squeekboard genau dann, wenn
+# Phosh danach fragt, und braucht die Sitzungskomponente nicht.
+[D-BUS Service]
+Name=sm.puri.OSK0
+Exec=/usr/bin/squeekboard
