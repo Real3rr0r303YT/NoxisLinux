@@ -27,7 +27,13 @@ die() { printf '\033[1;31m[FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 command -v ssh >/dev/null || die "ssh fehlt (apt install openssh-client / emerge net-misc/openssh)"
 
 # ---------------------------------------------------------------- USB-Netz
-reach() { ping -c1 -W1 "$IP" >/dev/null 2>&1; }
+# Nicht nur Ping pruefen: die Noxis-Firewall kann ICMP verwerfen, waehrend
+# SSH laeuft. Darum gilt auch ein offener Port 22 als erreichbar.
+reach() {
+  ping -c1 -W1 "$IP" >/dev/null 2>&1 && return 0
+  timeout 2 bash -c "exec 3<>/dev/tcp/$IP/22" 2>/dev/null && return 0
+  return 1
+}
 
 bring_up() {
   reach && return 0
@@ -39,6 +45,8 @@ bring_up() {
       case "$drv" in cdc_ncm|cdc_ether|rndis_host) ;; *) continue ;; esac
       ip -4 addr show "$n" 2>/dev/null | grep -q 172.16.42.2 && continue
       c "Schnittstelle $n ($drv)"
+      c "sudo fragt gleich nach deinem PC-Passwort (nicht der Handy-PIN) –"
+      c "es richtet die Schnittstelle am Rechner ein."
       sudo ip link set "$n" up
       sudo ip addr add "$ME" dev "$n" 2>/dev/null || true
       sleep 2
@@ -58,6 +66,14 @@ if ! bring_up; then
   * Ist noxis-usbnet eingeschaltet? Ohne Tippen am Handy:
       Handy in die Recovery, dann:  kernel/tools/noxis-diag.sh usbnet
   * Kabel direkt am Rechner, nicht ueber einen Hub.
+
+Zustand am Rechner:
+$(ip -4 addr show 2>/dev/null | grep -A2 -E "cdc_ncm|usb" | head -6)
+$(ip -4 addr show | grep -B2 172.16.42.2 | head -4)
+
+Antwortet das Handy weder auf Ping noch auf Port 22, aber die Schnittstelle
+ist da, dann laeuft der Dienst auf dem Handy nicht zu Ende. Nachsehen mit:
+  kernel/tools/noxis-try.sh --log
 EOF
   exit 1
 fi
