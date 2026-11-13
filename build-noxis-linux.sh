@@ -302,6 +302,25 @@ done
 # Mesa mit Turnip/KGSL (Vulkan, experimentell) nach /opt/mesa-kgsl, falls gebaut
 if [ -f /tmp/noxis/mesa-kgsl.tar.gz ]; then
   mkdir -p /opt && tar -xzf /tmp/noxis/mesa-kgsl.tar.gz -C /opt && echo "mesa-kgsl in /opt"
+  # GPU-Env für Phosh/GDK: Turnip-Vulkan + Zink (OpenGL über Vulkan)
+  mkdir -p /etc/environment.d
+  cat > /etc/environment.d/90-noxis-gpu.conf << 'GPUENV'
+# Noxis GPU: Turnip (Adreno 643L Vulkan) + Zink (OpenGL via Vulkan)
+# Made by 3rr0r303YT on TikTok – GPL-3.0
+VK_ICD_FILENAMES=/opt/mesa-kgsl/share/vulkan/icd.d/freedreno_icd.aarch64.json
+LD_LIBRARY_PATH=/opt/mesa-kgsl/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH
+MESA_LOADER_DRIVER_OVERRIDE=zink
+GBM_BACKEND=dri
+GBM_BACKENDS_PATH=/opt/mesa-kgsl/lib/aarch64-linux-gnu/gbm
+LIBGL_DRIVERS_PATH=/opt/mesa-kgsl/lib/aarch64-linux-gnu/dri
+GPUENV
+  # Phosh-Service: GPU-Env laden
+  mkdir -p /etc/systemd/system/phosh.service.d
+  cat > /etc/systemd/system/phosh.service.d/90-noxis-gpu.conf << 'PHOSHGPU'
+# Noxis GPU override – Made by 3rr0r303YT on TikTok – GPL-3.0
+[Service]
+EnvironmentFile=-/etc/environment.d/90-noxis-gpu.conf
+PHOSHGPU
 fi
 # Schemas der Noxis-Pakete (Bildschirmtastatur an, Hintergrund, dunkles Design)
 glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
