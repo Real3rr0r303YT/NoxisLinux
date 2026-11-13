@@ -61,7 +61,7 @@ DL="$WORK/downloads"; GNUPGHOME="$WORK/gnupg"; export GNUPGHOME
 ROOTFS_TAR="$WORK/rootfs.tar"
 
 # rootfs packages ----------------------------------------------------------
-PKG_BASE="systemd-sysv,systemd-resolved,systemd-timesyncd,dbus-user-session,sudo,locales,tzdata,ca-certificates,curl,gnupg,apt-transport-https,xz-utils,e2fsprogs,cryptsetup"
+PKG_BASE="systemd-sysv,systemd-resolved,systemd-timesyncd,dbus-user-session,dbus-x11,sudo,locales,tzdata,ca-certificates,curl,gnupg,apt-transport-https,xz-utils,e2fsprogs,cryptsetup"
 PKG_NET="network-manager,modemmanager,wpasupplicant,bluez,nftables,wireguard-tools,usbguard"
 PKG_UI="phosh-core,cage,seatd,gir1.2-gtk-4.0,librsvg2-common,wlr-randr,fonts-inter,squeekboard,pipewire,pipewire-pulse,wireplumber,fonts-noto-core,python3,python3-gi"
 PKG_APPS="firefox-esr,gnome-calls,chatty"

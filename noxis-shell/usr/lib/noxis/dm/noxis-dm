@@ -402,7 +402,16 @@ class DM:
         in_child = False
         try:
             shell = pw.pw_shell if pw.pw_shell and os.path.exists(pw.pw_shell) else "/bin/sh"
-            argv = [shell, "-l", "-c", 'exec "$@"', "noxis-session"] + cmd
+            # Ohne Sitzungs-D-Bus faellt gnome-session auf dbus-launch zurueck;
+            # das steckt in Debian im Paket dbus-x11 und fehlt hier. Es verliert
+            # dann org.gnome.SessionManager und beendet sich, der Compositor
+            # meldet "Session terminated" und die Anmeldung springt zurueck.
+            # dbus-run-session gehoert zum dbus-Paket und ist da. Die Pruefung
+            # laeuft erst in der Sitzung, weil DBUS_SESSION_BUS_ADDRESS von
+            # pam_systemd kommen kann.
+            launch = ('if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-run-session >/dev/null 2>&1; '
+                      'then exec dbus-run-session -- "$@"; fi; exec "$@"')
+            argv = [shell, "-l", "-c", launch, "noxis-session"] + cmd
             log(f"session for {pw.pw_name}: {' '.join(cmd)}")
             in_child = True
             pid = spawn(pw, argv, None, self.conf["vt"],
