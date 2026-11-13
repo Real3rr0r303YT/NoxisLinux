@@ -28,6 +28,8 @@
 #                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
 #                             auth_no_resp_received); zurueck mit macrand
+#   ./noxis-diag.sh fw-aus   Killswitch aus (Test ohne VPN), fw-an = wieder an
+#   ./noxis-diag.sh mullvad-gui  Mullvad-Oberflaeche unter Wayland starten
 #   ./noxis-diag.sh nosae    SAE im Treiber abschalten (WPA2 erzwingen)
 #   ./noxis-diag.sh wlanlog  WLAN-Meldungen mitschreiben lassen
 #   ./noxis-diag.sh wlanfetch Mitschrift abholen
@@ -544,6 +546,64 @@ osk)
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
   umount_root
+  ;;
+
+fw-aus|fw-an)
+  # Der Killswitch besteht aus zwei Teilen: noxis-firewall (nur der
+  # Mullvad-Tunnel darf raus) und Mullvads Lockdown-Modus, den ein Timer alle
+  # fuenf Minuten neu setzt. Ohne verbundenes Mullvad geht damit nichts raus,
+  # auch kein apt. Zum Testen ohne VPN laesst sich beides abschalten.
+  # ACHTUNG: mit fw-aus laeuft der Verkehr offen ueber WLAN, ohne Tunnel.
+  need_recovery; mount_root
+  e="$M/etc/systemd/system"
+  mkdirs "$e"
+  units="noxis-firewall.service noxis-mullvad-setup.service noxis-mullvad-setup.timer"
+  js="$M/etc/mullvad-vpn/settings.json"
+  if [ "$1" = "fw-aus" ]; then want=false; else want=true; fi
+  for u in $units; do
+    if [ "$1" = "fw-aus" ]; then
+      adb shell "ln -sf /dev/null $e/$u" >/dev/null 2>&1
+    else
+      adb shell "[ -L $e/$u ] && rm -f $e/$u" >/dev/null 2>&1
+    fi
+  done
+  echo "  ok Dienste: $( [ "$1" = fw-aus ] && echo maskiert || echo freigegeben )"
+  t=$(mktemp)
+  if adb pull "$js" "$t" >/dev/null 2>&1 && [ -s "$t" ]; then
+    sed -i -E "s/(\"(block_when_disconnected|lockdown_mode)\"[[:space:]]*:[[:space:]]*)(true|false)/\1$want/g" "$t"
+    adb push "$t" "$js" >/dev/null 2>&1 && echo "  ok Mullvad-Lockdown: $want"
+  else
+    c "  keine Mullvad-Einstellungen gefunden (uebersprungen)"
+  fi
+  rm -f "$t"
+  umount_root
+  if [ "$1" = "fw-aus" ]; then
+    ok "Killswitch AUS - Verkehr laeuft ohne VPN. Zurueck: noxis-diag.sh fw-an"
+  else
+    ok "Killswitch wieder AN - raus geht es nur noch ueber Mullvad"
+  fi
+  ;;
+
+mullvad-gui)
+  # Die Mullvad-Oberflaeche ist Electron und sucht ohne Hinweis einen
+  # X-Server. Unter Phosh gibt es nur Wayland, also startet sie nicht.
+  # Ein eigener Starter in /usr/local hat Vorrang und gibt die Schalter mit.
+  need_recovery; mount_root
+  t=$(mktemp); src=""
+  for f in mullvad-vpn.desktop mullvad-gui.desktop; do
+    adb pull "$M/usr/share/applications/$f" "$t" >/dev/null 2>&1 && [ -s "$t" ] && { src=$f; break; }
+  done
+  [ -n "$src" ] || { rm -f "$t"; umount_root; die "kein Mullvad-Starter im System - ist die App installiert?"; }
+  flags='--ozone-platform=wayland --enable-features=UseOzonePlatform,WaylandWindowDecorations --disable-gpu'
+  sed -i '/^Exec=/s# %[UuFf]$##' "$t"
+  sed -i "/^Exec=/{/--ozone-platform/!s#\$# $flags %U#}" "$t"
+  d="$M/usr/local/share/applications"
+  mkdirs "$d"
+  adb push "$t" "$d/$src" >/dev/null 2>&1 && adb shell "chmod 644 $d/$src" \
+    && echo "  ok Starter: $(grep -m1 '^Exec=' "$t")"
+  rm -f "$t"
+  umount_root
+  ok "Mullvad-Starter fuer Wayland abgelegt"
   ;;
 
 nosae)
