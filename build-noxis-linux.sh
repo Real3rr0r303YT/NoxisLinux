@@ -359,6 +359,13 @@ cmd_rootfs() {
   write_customize
   MESA_HOOK=""
   [ -f "$OUT/mesa-kgsl.tar.gz" ] && MESA_HOOK="copy-in $OUT/mesa-kgsl.tar.gz /tmp/noxis/" && c "Mesa (turnip-kgsl) kommt mit ins Rootfs"
+  # WLAN-Konfigs aus Backup (tote Symlinks auf dem Handy, lokal behalten)
+  WLAN_BACKUP="$HOME/noxis-backup/vendor-firmware"
+  WLAN_HOOK=""
+  if [ -d "$WLAN_BACKUP/wlan" ]; then
+    c "WLAN-Konfigs aus Backup werden ins Rootfs eingespielt"
+    WLAN_HOOK="sync-in $WLAN_BACKUP /lib/firmware"
+  fi
   local devdir="$WORK/device"; mkdir -p "$devdir"
   if [ -n "$DEVICE_DEBS" ]; then cp "$DEVICE_DEBS"/*.deb "$devdir/"; fi
   c "Building Debian $SUITE ($ARCH) + Phosh + Noxis ($( [ -n "$NLANG" ] && [ "$NLANG" != ask ] && echo "$NLANG, $NTZ" || echo "language on first boot")) …"
@@ -375,6 +382,7 @@ cmd_rootfs() {
     --customize-hook="chroot \"\$1\" sh -c 'cd /tmp/noxis && ln -sf tor-browser-linux-aarch64-*.tar.xz tor-browser.tar.xz'" \
     --customize-hook="sync-in $devdir /tmp/noxis/device" \
     ${MESA_HOOK:+--customize-hook="$MESA_HOOK"} \
+    ${WLAN_HOOK:+--customize-hook="$WLAN_HOOK"} \
     --customize-hook="copy-in $WORK/customize.sh /tmp/noxis/" \
     --customize-hook='chroot "$1" /tmp/noxis/customize.sh' \
     "$SUITE" "$ROOTFS_TAR" "$MIRROR"
