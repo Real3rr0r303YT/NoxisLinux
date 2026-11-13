@@ -255,7 +255,7 @@ cmd_initramfs() {
   local a
   for a in sh ash cat ls mkdir mount umount sed grep head sleep echo ln tr uname \
            modprobe insmod lsmod switch_root ip ifconfig udhcpd telnetd dmesg ps kill reboot poweroff \
-           vi less find blkid df free losetup; do
+           vi less find blkid df free losetup nc tar gzip dd mountpoint sync rm cp stat; do
     ln -sf busybox "$IRD/bin/$a"
   done
   install -m 0755 "$HERE/initramfs/init" "$IRD/init"
@@ -267,6 +267,7 @@ cmd_initramfs() {
   # root fs on unknown-block(0,0)").
   install -m 0755 "$HERE/initramfs/init" "$IRD/noxis-init"
   install -m 0644 "$HERE/initramfs/udhcpd.conf" "$IRD/etc/udhcpd.conf"
+  install -m 0755 "$HERE/initramfs/noxis-rescued" "$IRD/bin/noxis-rescued"
 
   # first-stage modules (vendor_boot + recovery: storage, USB, display, touch)
   # Module samt Abhaengigkeiten uebernehmen. modprobe --show-depends liest die

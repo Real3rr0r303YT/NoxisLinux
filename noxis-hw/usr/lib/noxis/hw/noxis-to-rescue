@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+# Naechster Start einmalig in Noxis Rescue (USB 172.16.42.1, PC: noxis-rescue.sh).
+set -e
+[ "$(id -u)" = 0 ] || exec pkexec "$0"
+touch /.noxis-rescue
+sync
+systemctl reboot

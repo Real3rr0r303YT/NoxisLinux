@@ -1,0 +1,91 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# Noxis Rescue: ein Befehl pro Verbindung (Port 4242, nur USB 172.16.42.1).
+# Die erste Zeile ist der Befehl, danach folgen die Daten (oder die Antwort).
+# Gegenstueck auf dem PC: kernel/tools/noxis-rescue.sh
+export PATH=/bin:/sbin
+SYS_BLOCK=${NOXIS_T_SYSBLOCK:-/sys/class/block}
+MNT=${NOXIS_T_MNT:-/mnt/root}
+
+find_part() {
+  for u in "$SYS_BLOCK"/*/uevent; do
+    [ -r "$u" ] || continue
+    if grep -qx "PARTNAME=$1" "$u"; then echo "/dev/$(sed -n 's/^DEVNAME=//p' "$u")"; return 0; fi
+  done
+  return 1
+}
+
+slot() { cat /run/noxis-slot 2>/dev/null; }
+
+mount_root() {  # $1 = ro|rw
+  mountpoint -q "$MNT" 2>/dev/null && umount "$MNT" 2>/dev/null
+  mkdir -p "$MNT"
+  dev=$(find_part userdata) || { echo "ERR userdata nicht gefunden"; return 1; }
+  [ "$1" = rw ] && e2fsck -p "$dev" >/dev/null 2>&1
+  mount -t ext4 -o "$1",noatime "$dev" "$MNT" || { echo "ERR mount $dev"; return 1; }
+}
+
+write_part() {  # $1 = Partitionsname, Daten von stdin
+  dev=$(find_part "$1") || { echo "ERR $1 nicht gefunden" >&2; return 1; }
+  dd of="$dev" bs=1M conv=fsync 2>/dev/null && sync
+}
+
+read -r cmd arg
+case "$cmd" in
+  info)
+    echo "Noxis Rescue – Slot $(slot)"
+    echo "Kernel: $(uname -r)"
+    for b in /sys/class/power_supply/battery; do
+      [ -r "$b/capacity" ] && echo "Akku: $(cat "$b/capacity")% ($(cat "$b/status" 2>/dev/null))"
+    done
+    for p in userdata boot_a boot_b init_boot vbmeta modem_a; do
+      d=$(find_part "$p") && echo "  $p → $d ($(( $(cat "$SYS_BLOCK/${d#/dev/}/size" 2>/dev/null || echo 0) / 2048 )) MB)"
+    done
+    mount_root ro && { df -h "$MNT" | tail -1; umount "$MNT"; }
+    ;;
+  logs)  # tar.gz: /var/log/noxis des Rootfs + dmesg dieses Rescue-Starts
+    dmesg > /tmp/rescue-dmesg.log
+    if mount_root ro; then
+      tar -cf - -C / tmp/rescue-dmesg.log -C "$MNT" var/log/noxis 2>/dev/null | gzip -1
+      umount "$MNT"
+    else
+      tar -cf - -C / tmp/rescue-dmesg.log | gzip -1
+    fi
+    ;;
+  backup)  # komplettes Noxis-Rootfs als tar.gz (nur belegte Dateien, nicht die ganze Partition)
+    mount_root ro || exit 1
+    tar -cf - -C "$MNT" . 2>/dev/null | gzip -1
+    umount "$MNT"
+    ;;
+  restore)  # tar.gz von stdin → Rootfs leeren und auspacken (PC fragt vorher nach)
+    [ "$arg" = JA ] || { echo "ERR Bestaetigung fehlt"; exit 1; }
+    mount_root rw || exit 1
+    find "$MNT" -mindepth 1 -maxdepth 1 ! -name lost+found -exec rm -rf {} +
+    gzip -dc | tar -xf - -C "$MNT" && sync && echo "OK wiederhergestellt"
+    umount "$MNT"
+    ;;
+  flash)  # flash <boot_a|init_boot|vbmeta|...> – Abbild von stdin
+    case "$arg" in boot_a|boot_b|init_boot|vbmeta|dtbo_a|dtbo_b) ;; *) echo "ERR Partition $arg nicht erlaubt"; exit 1 ;; esac
+    write_part "$arg" && echo "OK $arg geschrieben"
+    ;;
+  reboot-recovery|reboot-bootloader)
+    # Bootloader-Nachricht in misc (Android-BCB, Feld "command", 32 Bytes):
+    # ABL startet dann die Recovery bzw. bleibt im Bootloader.
+    m=$(find_part misc) || { echo "ERR misc nicht gefunden"; exit 1; }
+    [ "$cmd" = reboot-recovery ] && w=boot-recovery || w=bootonce-bootloader
+    { printf '%s' "$w"; head -c $((32 - ${#w})) /dev/zero; } | dd of="$m" bs=32 count=1 conv=notrunc,fsync 2>/dev/null
+    echo "OK $w"; sync; sleep 1; echo b > /proc/sysrq-trigger
+    ;;
+  reboot)
+    echo "OK Neustart"; sync; sleep 1; echo b > /proc/sysrq-trigger
+    ;;
+  poweroff)
+    echo "OK aus"; sync; sleep 1; echo o > /proc/sysrq-trigger
+    ;;
+  *)
+    echo "Befehle: info logs backup restore flash reboot reboot-recovery reboot-bootloader poweroff"
+    ;;
+esac

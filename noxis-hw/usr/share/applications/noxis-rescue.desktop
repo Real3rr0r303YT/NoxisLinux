@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Noxis Rescue
+Name[de]=Noxis Rescue
+Comment=Restart into Noxis Rescue (backup, logs, back to Nothing OS via USB)
+Comment[de]=Neustart in Noxis Rescue (Backup, Logs, zurueck zu Nothing OS per USB)
+Exec=/usr/lib/noxis/hw/noxis-to-rescue
+Icon=system-reboot-symbolic
+Categories=System;
+X-Purism-FormFactor=Workstation;Mobile;

@@ -60,6 +60,22 @@
 Beim ersten Start fragt das Handy nach Sprache, Zeitzone, eigener PIN und WLAN.
 Flashen überschreibt `userdata`. Zurück zu Nothing OS: `kernel/tools/noxis-try.sh --restore`.
 
+## Noxis Rescue (statt Stock-Recovery)
+
+In Noxis die App **Noxis Rescue** öffnen → das Handy startet einmalig in den
+Rescue-Modus (Bildschirm bleibt beim Logo). Per USB am PC:
+
+```bash
+kernel/tools/noxis-rescue.sh info        # Slot, Akku, Partitionen
+kernel/tools/noxis-rescue.sh backup      # komplettes Noxis als tar.gz sichern
+kernel/tools/noxis-rescue.sh restore f   # Backup zurückspielen
+kernel/tools/noxis-rescue.sh logs        # Logs holen
+kernel/tools/noxis-rescue.sh stock       # Nothing-Bootkette zurück + Stock-Recovery
+kernel/tools/noxis-rescue.sh reboot      # wieder Noxis
+```
+
+Startet das Rootfs nicht, landet Noxis von selbst im Rescue-Modus.
+
 ## Installation auf dem Gerät
 
 ```sh

@@ -166,8 +166,26 @@ usb_debug() {
 
 rescue() {
   log "ERROR: $* – rescue mode"
-  usb_debug || true
-  exec sh
+  rescue_mode
+}
+
+# Noxis Rescue: USB-Netz 172.16.42.1, Telnet-Shell und der Befehlsdienst
+# noxis-rescued auf Port 4242 (PC: kernel/tools/noxis-rescue.sh). Ersetzt den
+# Umweg ueber Stock-Recovery fuer Logs, Backups und das Zurueckspielen.
+rescue_mode() {
+  log "Noxis Rescue – USB 172.16.42.1, Port 4242 (noxis-rescue.sh), telnet"
+  echo "${SLOT:-?}" > /run/noxis-slot
+  usb_debug || log "Rescue: kein USB-Netz"
+  while :; do
+    nc -l -p 4242 -e /bin/noxis-rescued 2>/dev/null || sleep 1
+  done
+}
+
+want_rescue() {  # Ausloeser: Kernel-Parameter oder Recovery-Start aus dem Bootloader
+  [ "$(cmdline_get noxis.rescue)" = 1 ] && return 0
+  [ "$(bootconfig_get androidboot.mode)" = recovery ] && return 0
+  [ "$(bootconfig_get androidboot.force_normal_boot)" = 0 ] && return 0
+  return 1
 }
 
 # ---------------------------------------------------------------- main
@@ -177,6 +195,9 @@ load_modules
 
 SLOT=$(detect_slot)
 ROOT_PART=$(cmdline_get noxis.root) || ROOT_PART=userdata
+
+log "boot: mode=$(bootconfig_get androidboot.mode) force_normal_boot=$(bootconfig_get androidboot.force_normal_boot) bootreason=$(bootconfig_get androidboot.bootreason)"
+want_rescue && rescue_mode
 
 if [ "$(cmdline_get noxis.debug)" = 1 ]; then
   usb_debug
@@ -189,6 +210,12 @@ log "Root: $ROOT_DEV (Slot ${SLOT:-?})"
 e2fsck -p "$ROOT_DEV" >/dev/null 2>&1
 mount -t ext4 -o rw,noatime,nodev "$ROOT_DEV" /sysroot || rescue "mounting $ROOT_DEV failed"
 [ -x /sysroot/sbin/init ] || [ -L /sysroot/sbin/init ] || rescue "no /sbin/init on $ROOT_DEV"
+
+# "Neustart in Rescue" aus Noxis legt /.noxis-rescue an (einmalig).
+if [ -e /sysroot/.noxis-rescue ]; then
+  rm -f /sysroot/.noxis-rescue; sync; umount /sysroot
+  rescue_mode
+fi
 
 # firmware: modem (vfat) and dsp (ext4) of the active slot, read-only
 mkdir -p /sysroot/vendor/firmware_mnt /sysroot/vendor/dsp

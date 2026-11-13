@@ -80,6 +80,13 @@ run_init 'cmdline_get fehlt' >/dev/null && bad "cmdline_get returns unknown keys
 s=$(date +%s); run_init 'wait_part gibtsnicht 1' >/dev/null; e=$(( $(date +%s) - s ))
 [ "$e" -le 3 ] && ok "wait_part stops after the timeout (${e}s)" || bad "wait_part hangs (${e}s)"
 grep -q 'telnetd -b 172.16.42.1' "$ROOT/kernel/initramfs/init" && ok "debug shell only on the USB address" || bad "telnetd binding"
+t "initramfs/noxis-rescued (sh)" sh -n "$ROOT/kernel/initramfs/noxis-rescued"
+t "tools/noxis-rescue.sh"        bash -n "$ROOT/kernel/tools/noxis-rescue.sh"
+run_init 'want_rescue' && bad "Rescue bei normalem Start" || ok "normaler Start → kein Rescue"
+echo 'androidboot.mode = "recovery"' >> "$T/bootconfig"
+run_init 'want_rescue' && ok "Recovery-Start aus dem Bootloader → Rescue" || bad "androidboot.mode=recovery"
+sed -i '/androidboot.mode/d' "$T/bootconfig"
+grep -q 'noxis-rescued' "$ROOT/kernel/build-noxis-kernel.sh" && ok "noxis-rescued kommt ins Initramfs" || bad "rescued fehlt im Build"
 grep -q 'cmdline_get noxis.debug)" = 1' "$ROOT/kernel/initramfs/init" && ok "debug only with noxis.debug=1" || bad "debug condition"
 
 echo "== Packages"

@@ -218,14 +218,17 @@ shell)
       noxis-hw/usr/lib/udev/rules.d/70-noxis-gpu.rules \
       noxis-hw/usr/lib/udev/rules.d/65-noxis-rmtfs.rules \
       noxis-hw/usr/lib/noxis/hw/noxis-firmware-links \
-      noxis-hw/usr/lib/noxis/hw/noxis-radios
+      noxis-hw/usr/lib/noxis/hw/noxis-radios \
+      noxis-hw/usr/lib/noxis/hw/noxis-to-rescue \
+      noxis-hw/usr/share/applications/noxis-rescue.desktop \
+      noxis-hw/etc/polkit-1/rules.d/50-noxis-rescue.rules
   do
     src="$REPO/$rel"
     [ -f "$src" ] || continue
     dst="$M/${rel#*/}"
     adb shell "mkdir -p \$(dirname $dst)" >/dev/null 2>&1
     adb push "$src" "$dst" >/dev/null 2>&1 && { n=$((n + 1)); } || die "push $rel fehlgeschlagen"
-    case "$rel" in *.py|*.css|*.conf|*.rules|*/pam.d/*) adb shell "chmod 644 $dst" >/dev/null 2>&1 ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
+    case "$rel" in *.py|*.css|*.conf|*.rules|*.desktop|*/pam.d/*) adb shell "chmod 644 $dst" >/dev/null 2>&1 ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
   done
   adb shell "sync" >/dev/null 2>&1
   ok "$n Dateien aktualisiert"
