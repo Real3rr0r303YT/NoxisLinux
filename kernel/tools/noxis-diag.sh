@@ -28,6 +28,7 @@
 #                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
 #                             auth_no_resp_received); zurueck mit macrand
+#   ./noxis-diag.sh nosae    SAE im Treiber abschalten (WPA2 erzwingen)
 #   ./noxis-diag.sh wlanlog  WLAN-Meldungen mitschreiben lassen
 #   ./noxis-diag.sh wlanfetch Mitschrift abholen
 #   ./noxis-diag.sh band24  nur 2,4 GHz nutzen (DFS-Kanal meiden)
@@ -543,6 +544,36 @@ osk)
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
   umount_root
+  ;;
+
+nosae)
+  # Die Mitschrift zeigt es schwarz auf weiss: NetworkManager bietet trotz
+  # pmf=0 weiter "SAE FT-SAE" an (das haengt er bei jedem WPA-PSK-Profil
+  # selbst an), der Treiber waehlt SAE, und die laeuft in
+  # "lim_process_sae_auth_timeout". Im Profil laesst sich das nicht
+  # abstellen - aber im Treiber: sae_enabled=0 in der WCNSS_qcom_cfg.ini.
+  # Dann meldet er kein SAE mehr an, und wpa_supplicant nimmt WPA2-PSK.
+  need_recovery; mount_root
+  FW=$(fwdir)
+  tmp=$(mktemp -d); n=0
+  for chip in qca_cld3_qca6750 qca6750; do
+    f="$FW/updates/wlan/qca_cld/$chip/WCNSS_qcom_cfg.ini"
+    adb pull "$f" "$tmp/ini" >/dev/null 2>&1 || continue
+    [ -s "$tmp/ini" ] || continue
+    sed -i '/^[[:space:]]*sae_enabled[[:space:]]*=/d' "$tmp/ini"
+    if grep -q '^END' "$tmp/ini"; then
+      sed -i '0,/^END/s//sae_enabled=0\nEND/' "$tmp/ini"
+    else
+      echo 'sae_enabled=0' >> "$tmp/ini"
+    fi
+    adb push "$tmp/ini" "$f" >/dev/null 2>&1 \
+      && { echo "  ok $chip: sae_enabled=0 ($(wc -c < "$tmp/ini") B)"; n=$((n+1)); }
+    rm -f "$tmp/ini"
+  done
+  rm -rf "$tmp"
+  umount_root
+  [ "$n" -ge 1 ] || die "keine WCNSS_qcom_cfg.ini im Rootfs - erst: noxis-diag.sh wlan"
+  ok "SAE im Treiber abgeschaltet - wirkt beim naechsten Start"
   ;;
 
 wlanlog)
