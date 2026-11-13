@@ -61,14 +61,20 @@ DL="$WORK/downloads"; GNUPGHOME="$WORK/gnupg"; export GNUPGHOME
 ROOTFS_TAR="$WORK/rootfs.tar"
 
 # rootfs packages ----------------------------------------------------------
-PKG_BASE="systemd-sysv,systemd-resolved,systemd-timesyncd,dbus-user-session,dbus-x11,sudo,locales,tzdata,ca-certificates,curl,gnupg,apt-transport-https,xz-utils,e2fsprogs,cryptsetup"
+# pkexec ist in trixie ein eigenes Paket und NICHT in polkitd enthalten. Ohne
+# es scheitert jeder Starter, der Rechte anfordert ("pkexec: not found"):
+# Noxis Rescue und Noxis Guard.
+PKG_BASE="systemd-sysv,systemd-resolved,systemd-timesyncd,dbus-user-session,dbus-x11,sudo,locales,tzdata,ca-certificates,curl,gnupg,apt-transport-https,xz-utils,e2fsprogs,cryptsetup,pkexec,polkitd"
 PKG_NET="network-manager,modemmanager,wpasupplicant,bluez,nftables,wireguard-tools,usbguard"
 PKG_UI="phosh-core,cage,seatd,xwayland,gir1.2-gtk-4.0,librsvg2-common,wlr-randr,fonts-inter,squeekboard,pipewire,pipewire-pulse,wireplumber,fonts-noto-core,python3,python3-gi"
 PKG_APPS="firefox-esr,firefox-esr-mobile-config,gnome-calls,chatty"
 # pentest tools from Debian (Kali-style); NOXIS_PENTEST=0 leaves them out
 PKG_PENTEST="nmap masscan aircrack-ng reaver hcxdumptool hcxtools wifite macchanger tshark wireshark tcpdump bettercap hydra john hashcat sqlmap gobuster ffuf netcat-openbsd socat proxychains4 dnsutils whois binwalk radare2 sslscan dsniff ettercap-text-only podman distrobox"
 PENTEST="${NOXIS_PENTEST:-1}"
-PKG_OPTIONAL="waydroid kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs protection-domain-mapper tqftpserv qbootctl qrtr-tools bluez-tools"
+# gnome-console heisst in trixie so; "kgx" war der alte Name und fehlt darum.
+# waydroid gibt es in trixie nicht (eigene Paketquelle noetig) – bleibt drin,
+# die Schleife uebergeht Fehlschlaege.
+PKG_OPTIONAL="waydroid gnome-console kgx phosh-mobile-settings gnome-text-editor plymouth gnome-network-displays rmtfs protection-domain-mapper tqftpserv qbootctl qrtr-tools bluez-tools"
 
 # ------------------------------------------------------------ language + time zone
 LANG_CODES=(de tr en fr bg ru uk)

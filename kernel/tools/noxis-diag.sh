@@ -17,6 +17,8 @@
 #                             naechsten Boot selbst (dpkg laeuft dort nativ)
 #   ./noxis-diag.sh gpu-off   GPU-Umgebung (Turnip/Zink) aus dem installierten
 #                             System nehmen – gegen Neustart-Schleifen
+#   ./noxis-diag.sh wlan      WCNSS_qcom_cfg.ini und wlan_mac.bin aus vendor
+#                             bzw. persist ins Rootfs legen (WLAN-Treiber)
 #
 # Warum nicht das Journal: noxis-opsec setzt Storage=volatile, das Journal
 # liegt also nur im RAM und ist nach dem Ausschalten weg. Und der
@@ -321,7 +323,9 @@ debs)
   # laedt die .deb-Dateien, der Boot-Dienst noxis-install-debs installiert
   # sie auf dem Handy mit dpkg und loescht sie danach.
   PKGS="${NOXIS_DEBS:-protection-domain-mapper dbus-x11}"
-  cache="$HOME/noxis-backup/debs"
+  # Pro Paketliste ein eigener Ordner, sonst liefert ein alter Download die
+  # falschen .deb-Dateien zurueck, sobald NOXIS_DEBS geaendert wird.
+  cache="$HOME/noxis-backup/debs/$(printf '%s' "$PKGS" | tr -c 'a-zA-Z0-9.+-' '_')"
   mkdir -p "$cache"
   if ! ls "$cache"/*.deb >/dev/null 2>&1; then
     command -v docker >/dev/null || die "docker fehlt"
@@ -354,6 +358,60 @@ remove)
   adb shell "rm -rf $M/var/log/noxis" >/dev/null 2>&1
   ok "Haken entfernt"
   umount_root
+  ;;
+
+wlan)
+  # icnss2 bekommt die MAC vom Modem, aber "qca_cld3_qca6750 ... Driver probe
+  # failed: -1". Der Treiber liest WCNSS_qcom_cfg.ini (und wlan_mac.bin) und
+  # bricht ab, wenn die Datei fehlt. Auf dem Handy sind beide nur Verweise auf
+  # andere Partitionen (vendor, persist), darum fehlten sie beim Firmware-Pull.
+  # Hier loesen wir die Verweise in der Recovery auf und legen die Dateien in
+  # /lib/firmware des installierten Noxis ab. Kein Neubau.
+  need_recovery
+  c "vendor und persist einhaengen"
+  adb shell "mkdir -p /tmp/vnd /tmp/prst
+    for n in vendor_a vendor; do mount -o ro /dev/block/by-name/\$n /tmp/vnd 2>/dev/null && break; done
+    mount -o ro /dev/block/by-name/persist /tmp/prst 2>/dev/null
+    echo vnd=\$(ls /tmp/vnd 2>/dev/null | wc -l) prst=\$(ls /tmp/prst 2>/dev/null | wc -l)"
+  mount_root
+  CHIPS="qca6750 wcn6450 peach_v2"
+  FILES="WCNSS_qcom_cfg.ini wlan_mac.bin"
+  n=0
+  for chip in $CHIPS; do
+    for f in $FILES; do
+      # Ziel des Verweises lesen und auf die eingehaengten Partitionen umbiegen.
+      out=$(adb shell "
+        s=/tmp/vnd/firmware/wlan/qca_cld/$chip/$f
+        [ -e \"\$s\" ] || [ -L \"\$s\" ] || { echo MISS; exit 0; }
+        t=\$(readlink \"\$s\" 2>/dev/null)
+        [ -n \"\$t\" ] || t=\"\$s\"
+        case \"\$t\" in
+          /mnt/vendor/persist/*) r=/tmp/prst\${t#/mnt/vendor/persist} ;;
+          /vendor/*)             r=/tmp/vnd\${t#/vendor} ;;
+          /persist/*)            r=/tmp/prst\${t#/persist} ;;
+          /*)                    r=\"\$t\" ;;
+          *)                     r=/tmp/vnd/firmware/wlan/qca_cld/$chip/\"\$t\" ;;
+        esac
+        if [ -f \"\$r\" ]; then
+          mkdir -p $M/lib/firmware/wlan/qca_cld/$chip
+          cp \"\$r\" $M/lib/firmware/wlan/qca_cld/$chip/$f && echo \"OK \$t\"
+        else
+          echo \"TOT \$t\"
+        fi" 2>/dev/null | tr -d '\r')
+      case "$out" in
+        OK*)   ok "$chip/$f  (von ${out#OK })"; n=$((n + 1)) ;;
+        TOT*)  c  "$chip/$f: Verweis zeigt auf ${out#TOT } – dort nichts" ;;
+        *)     c  "$chip/$f: nicht vorhanden" ;;
+      esac
+    done
+  done
+  # Was der Treiber tatsaechlich sucht, steht im dmesg; hier der Ist-Zustand.
+  c "jetzt im Rootfs:"
+  adb shell "ls -la $M/lib/firmware/wlan/qca_cld/*/ 2>/dev/null || echo '  (nichts)'"
+  adb shell "umount /tmp/vnd /tmp/prst 2>/dev/null" >/dev/null 2>&1
+  umount_root
+  [ "$n" -gt 0 ] && ok "$n Datei(en) eingelegt – naechster Noxis-Start probiert es damit" \
+                 || c "nichts gefunden. Dann schick mir die Zeilen von oben, dann suchen wir das Ziel anders."
   ;;
 
 gpu-off)
