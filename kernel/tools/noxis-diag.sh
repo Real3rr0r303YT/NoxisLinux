@@ -389,57 +389,67 @@ remove)
   ;;
 
 wlan)
-  # icnss2 bekommt die MAC vom Modem, aber "qca_cld3_qca6750 ... Driver probe
-  # failed: -1". Der Treiber liest WCNSS_qcom_cfg.ini (und wlan_mac.bin) und
-  # bricht ab, wenn die Datei fehlt. Auf dem Handy sind beide nur Verweise auf
-  # andere Partitionen (vendor, persist), darum fehlten sie beim Firmware-Pull.
-  # Hier loesen wir die Verweise in der Recovery auf und legen die Dateien in
-  # /lib/firmware des installierten Noxis ab. Kein Neubau.
+  # "qca_cld3_qca6750 ... Driver probe failed: -1", 4 ms nach der DMS-MAC, und
+  # kein einziges Wort vom Treiber dazu. Ursache: der Treiber liest beim Start
+  # WCNSS_qcom_cfg.ini. Fehlt sie, schweigt der Firmware-Lader, und die eigene
+  # Fehlerzeile des Treibers ist zu diesem Zeitpunkt abgeschaltet.
+  #
+  # Die Datei liegt NICHT unter firmware/wlan/... - dort steht nur ein Verweis.
+  # Das Ziel ist /vendor/etc/wifi/<chip>/WCNSS_qcom_cfg.ini (rund 2 KB) auf der
+  # vendor-Partition. Genau dort habe ich beim ersten Versuch nicht gesucht.
+  #
+  # wlan_mac.bin braucht es nicht: sein Ziel liegt in persist, und der Treiber
+  # liest es erst nach dem DMS-MAC-Weg - und der klappt ja.
+  #
+  # Welchen Pfad DIESER Treiber anfragt, steht in seinem Objektcode:
+  #   grep -ao '[a-zA-Z0-9_/.-]*WCNSS_qcom_cfg[a-zA-Z0-9_/.-]*' wlan_hdd_main.o
+  # Hier: wlan/qca_cld/qca_cld3_qca6750/ - die Stock-Ablage nutzt qca6750/.
+  # Darum legen wir die Datei in beide Ordner.
   need_recovery
-  c "vendor und persist einhaengen"
-  adb shell "mkdir -p /tmp/vnd /tmp/prst
-    for n in vendor_a vendor; do mount -o ro /dev/block/by-name/\$n /tmp/vnd 2>/dev/null && break; done
-    mount -o ro /dev/block/by-name/persist /tmp/prst 2>/dev/null
-    echo vnd=\$(ls /tmp/vnd 2>/dev/null | wc -l) prst=\$(ls /tmp/prst 2>/dev/null | wc -l)"
-  mount_root
-  CHIPS="qca6750 wcn6450 peach_v2"
-  FILES="WCNSS_qcom_cfg.ini wlan_mac.bin"
-  n=0
-  for chip in $CHIPS; do
-    for f in $FILES; do
-      # Ziel des Verweises lesen und auf die eingehaengten Partitionen umbiegen.
-      out=$(adb shell "
-        s=/tmp/vnd/firmware/wlan/qca_cld/$chip/$f
-        [ -e \"\$s\" ] || [ -L \"\$s\" ] || { echo MISS; exit 0; }
-        t=\$(readlink \"\$s\" 2>/dev/null)
-        [ -n \"\$t\" ] || t=\"\$s\"
-        case \"\$t\" in
-          /mnt/vendor/persist/*) r=/tmp/prst\${t#/mnt/vendor/persist} ;;
-          /vendor/*)             r=/tmp/vnd\${t#/vendor} ;;
-          /persist/*)            r=/tmp/prst\${t#/persist} ;;
-          /*)                    r=\"\$t\" ;;
-          *)                     r=/tmp/vnd/firmware/wlan/qca_cld/$chip/\"\$t\" ;;
-        esac
-        if [ -f \"\$r\" ]; then
-          mkdir -p $M/lib/firmware/wlan/qca_cld/$chip
-          cp \"\$r\" $M/lib/firmware/wlan/qca_cld/$chip/$f && echo \"OK \$t\"
-        else
-          echo \"TOT \$t\"
-        fi" 2>/dev/null | tr -d '\r')
-      case "$out" in
-        OK*)   ok "$chip/$f  (von ${out#OK })"; n=$((n + 1)) ;;
-        TOT*)  c  "$chip/$f: Verweis zeigt auf ${out#TOT } – dort nichts" ;;
-        *)     c  "$chip/$f: nicht vorhanden" ;;
-      esac
+  c "vendor einhaengen"
+  adb shell "mkdir -p /tmp/vnd
+    for n in vendor_a vendor; do
+      for t in erofs ext4 auto; do
+        mount -t \$t -o ro /dev/block/by-name/\$n /tmp/vnd 2>/dev/null && break 2
+      done
     done
+    echo \"  Eintraege: \$(ls /tmp/vnd 2>/dev/null | wc -l)\""
+  c "suche die Ini auf der vendor-Partition"
+  found=$(adb shell "ls /tmp/vnd/etc/wifi/*/WCNSS_qcom_cfg.ini 2>/dev/null" | tr -d '\r')
+  if [ -z "$found" ]; then
+    # Breiter suchen, falls die Ablage abweicht.
+    found=$(adb shell "find /tmp/vnd -name 'WCNSS_qcom_cfg.ini' -type f 2>/dev/null" | tr -d '\r')
+  fi
+  if [ -z "$found" ]; then
+    adb shell "umount /tmp/vnd 2>/dev/null" >/dev/null 2>&1
+    die "keine WCNSS_qcom_cfg.ini auf vendor gefunden.
+       Pruefen, ob vendor ueberhaupt eingehaengt wurde:
+         adb shell ls /tmp/vnd"
+  fi
+  for f in $found; do c "gefunden: $f  ($(adb shell "wc -c < $f" 2>/dev/null | tr -d '\r') Bytes)"; done
+  src=$(echo "$found" | head -1)
+
+  # Auch ins Backup legen, das der Rootfs-Bau nach /lib/firmware spiegelt -
+  # sonst ist die Datei beim naechsten Bau wieder weg.
+  for d in qca_cld3_qca6750 qca6750; do
+    bdir="$HOME/noxis-backup/vendor-firmware/wlan/qca_cld/$d"
+    mkdir -p "$bdir"
+    adb pull "$src" "$bdir/WCNSS_qcom_cfg.ini" >/dev/null 2>&1 \
+      && c "ins Backup: ${bdir#$HOME/}" || c "Backup-Kopie fehlgeschlagen ($d)"
   done
-  # Was der Treiber tatsaechlich sucht, steht im dmesg; hier der Ist-Zustand.
+
+  mount_root
+  for d in qca_cld3_qca6750 qca6750; do
+    adb shell "mkdir -p $M/lib/firmware/wlan/qca_cld/$d && cp $src $M/lib/firmware/wlan/qca_cld/$d/WCNSS_qcom_cfg.ini" >/dev/null 2>&1
+  done
   c "jetzt im Rootfs:"
-  adb shell "ls -la $M/lib/firmware/wlan/qca_cld/*/ 2>/dev/null || echo '  (nichts)'"
-  adb shell "umount /tmp/vnd /tmp/prst 2>/dev/null" >/dev/null 2>&1
+  adb shell "ls -l $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null || echo '  (nichts)'"
+  n=$(adb shell "ls $M/lib/firmware/wlan/qca_cld/*/WCNSS_qcom_cfg.ini 2>/dev/null | wc -l" | tr -d '\r')
+  adb shell "umount /tmp/vnd 2>/dev/null" >/dev/null 2>&1
   umount_root
-  [ "$n" -gt 0 ] && ok "$n Datei(en) eingelegt – naechster Noxis-Start probiert es damit" \
-                 || c "nichts gefunden. Dann schick mir die Zeilen von oben, dann suchen wir das Ziel anders."
+  [ "${n:-0}" -ge 1 ] || die "Datei nicht ins Rootfs gekommen"
+  ok "Ini eingelegt ($n Ablagen) - wirkt beim naechsten Start"
+  c "Danach pruefen:  kernel/tools/noxis-shell.sh \"nmcli d\""
   ;;
 
 osk)
