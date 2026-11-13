@@ -61,11 +61,13 @@ bring_up() {
       # pruefen. Vorher wurde sie uebergangen, und das Skript meldete
       # "kein USB-Netz", ohne das Handy ueberhaupt gefragt zu haben.
       if ip -4 addr show "$n" 2>/dev/null | grep -q 172.16.42.2; then
-        c "Schnittstelle $n ($drv) ist schon eingerichtet – pruefe das Handy"
+        # Nur einmal melden, nicht in jeder Runde – sonst scrollt die Meldung
+        # dreissig Mal durch, waehrend sich nichts aendert.
+        [ -z "${said_ready:-}" ] && { c "Schnittstelle $n ($drv) steht – warte auf das Handy"; said_ready=1; }
         reach && { ok "Handy antwortet auf $IP"; return 0; }
         continue
       fi
-      c "Schnittstelle $n ($drv)"
+      [ -z "${said_cfg:-}" ] && { c "Schnittstelle $n ($drv)"; said_cfg=1; }
       sudo ip link set "$n" up
       sudo ip addr add "$ME" dev "$n" 2>/dev/null || true
       sleep 2
