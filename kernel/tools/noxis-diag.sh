@@ -109,7 +109,7 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   for r in /sys/class/remoteproc/remoteproc*; do echo "  $(cat $r/name 2>/dev/null): firmware=$(cat $r/firmware 2>/dev/null) modalias=$(cat $r/device/modalias 2>/dev/null)"; done
   echo "--- uio (rmtfs) ---"
   for u in /sys/class/uio/uio*; do echo "  $(basename $u): $(cat $u/name 2>/dev/null)"; done; ls -la /dev/qcom_rmtfs* 2>&1
-  echo "--- Touch ---"; grep -c fts_input_report /dev/null; dmesg | grep -aE "fts_panel_notifier|FTS_TS/E|fts_ts_suspend|fts_ts_resume" | tail -8
+  echo "--- Touch ---"; echo "  Ereignisse: $(dmesg | grep -ac fts_input_report)"; dmesg | grep -aE "fts_panel_notifier|FTS_TS/E|fts_ts_suspend|fts_ts_resume" | tail -8
   echo "--- pd-mapper .jsn ---"
   ls -la /lib/firmware/ 2>/dev/null | grep -i jsn
   ls /vendor/firmware_mnt/image /vendor/firmware /vendor/dsp 2>/dev/null | grep -i jsn
