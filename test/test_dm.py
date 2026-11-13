@@ -209,6 +209,12 @@ for bad, why in ((("", "1234", None), "leerer Benutzer"), (("../root", "1234", N
 # gebaut werden, die PIN muss trotzdem jedes Mal gesetzt werden.
 TD = os.path.join(T, "doneroot")
 os.makedirs(os.path.join(TD, "var/lib/noxis"), exist_ok=True)
+# apply() prueft die Zeitzone gegen die zoneinfo unterhalb von root, also
+# braucht der Testbaum eine zone.tab und die Zonendatei selbst.
+os.makedirs(os.path.join(TD, nxsetup.ZONEINFO, "Europe"), exist_ok=True)
+with open(os.path.join(TD, nxsetup.ZONEINFO, "zone.tab"), "w") as f:
+    f.write("# Testbaum\nDE\t+5230+01322\tEurope/Berlin\n")
+open(os.path.join(TD, nxsetup.ZONEINFO, "Europe/Berlin"), "wb").close()
 nxsetup.apply("de", "Europe/Berlin", root=TD, compile_schemas=False)
 check("apply setzt die Sprach-Markierung", nxsetup.is_done(TD))
 check("apply setzt NICHT die PIN-Markierung", not nxsetup.user_is_done(TD))
