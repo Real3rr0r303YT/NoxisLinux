@@ -19,6 +19,8 @@
 #                             System nehmen – gegen Neustart-Schleifen
 #   ./noxis-diag.sh wlan      WCNSS_qcom_cfg.ini und wlan_mac.bin aus vendor
 #                             bzw. persist ins Rootfs legen (WLAN-Treiber)
+#   ./noxis-diag.sh vendorfw  ~/noxis-backup/vendor-firmware ins /lib/firmware
+#                             des Systems schieben (Board-Daten fuer WLAN/BT)
 #
 # Warum nicht das Journal: noxis-opsec setzt Storage=volatile, das Journal
 # liegt also nur im RAM und ist nach dem Ausschalten weg. Und der
@@ -412,6 +414,33 @@ wlan)
   umount_root
   [ "$n" -gt 0 ] && ok "$n Datei(en) eingelegt – naechster Noxis-Start probiert es damit" \
                  || c "nichts gefunden. Dann schick mir die Zeilen von oben, dann suchen wir das Ziel anders."
+  ;;
+
+vendorfw)
+  # /vendor/firmware steht in firmware_class.path, aber die vendor-Partition
+  # wird in Noxis nicht eingehaengt – dort liegt also nichts. Darin stecken die
+  # Board-Daten, die der WLAN-Treiber beim Start laedt (bdwlan & Co.). Hier
+  # schieben wir den schon geholten Ordner ins /lib/firmware des Systems.
+  src="$HOME/noxis-backup/vendor-firmware"
+  [ -d "$src" ] && [ -n "$(ls -A "$src" 2>/dev/null)" ] \
+    || die "$src ist leer – erst: kernel/tools/pull-firmware.sh (Handy in der Recovery)"
+  c "$(du -sh "$src" | cut -f1) aus $src"
+  need_recovery; mount_root
+  # Einzeln schieben: adb push eines Ordners legt ihn sonst verschachtelt ab.
+  n=0
+  for f in "$src"/*; do
+    [ -e "$f" ] || continue
+    b=$(basename "$f")
+    if [ -d "$f" ]; then
+      adb push "$f" "$M/lib/firmware/" >/dev/null 2>&1 && n=$((n + 1)) || c "  $b nicht uebertragen"
+    else
+      adb push "$f" "$M/lib/firmware/$b" >/dev/null 2>&1 && n=$((n + 1)) || c "  $b nicht uebertragen"
+    fi
+  done
+  ok "$n Einträge nach /lib/firmware"
+  c "WLAN-relevante Dateien jetzt im System:"
+  adb shell "ls $M/lib/firmware/ | grep -iE 'bd|wlan|qca|wcn|cnss' | head -20; echo; ls -d $M/lib/firmware/qca6750 2>/dev/null && ls $M/lib/firmware/qca6750 | head -20"
+  umount_root
   ;;
 
 gpu-off)

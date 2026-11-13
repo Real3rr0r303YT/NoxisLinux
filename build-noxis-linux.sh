@@ -388,11 +388,18 @@ cmd_rootfs() {
   MESA_HOOK=""
   [ -f "$OUT/mesa-kgsl.tar.gz" ] && MESA_HOOK="copy-in $OUT/mesa-kgsl.tar.gz /tmp/noxis/" && c "Mesa (turnip-kgsl) kommt mit ins Rootfs"
   # WLAN-Konfigs aus Backup (tote Symlinks auf dem Handy, lokal behalten)
+  # Die vendor-Partition wird in Noxis nicht eingehaengt, /vendor/firmware ist
+  # dort also leer – obwohl es in firmware_class.path steht. Die Dateien
+  # (Board-Daten fuer WLAN und Bluetooth) muessen darum ins /lib/firmware.
+  # Frueher stand hier eine Pruefung auf den Unterordner "wlan"; der fehlt
+  # auf diesem Geraet, womit nichts eingespielt wurde.
   WLAN_BACKUP="$HOME/noxis-backup/vendor-firmware"
   WLAN_HOOK=""
-  if [ -d "$WLAN_BACKUP/wlan" ]; then
-    c "WLAN-Konfigs aus Backup werden ins Rootfs eingespielt"
+  if [ -d "$WLAN_BACKUP" ] && [ -n "$(ls -A "$WLAN_BACKUP" 2>/dev/null)" ]; then
+    c "vendor-Firmware aus dem Backup kommt mit ins Rootfs ($(du -sh "$WLAN_BACKUP" | cut -f1))"
     WLAN_HOOK="sync-in $WLAN_BACKUP /lib/firmware"
+  else
+    c "kein ~/noxis-backup/vendor-firmware – WLAN und Bluetooth bleiben ohne Board-Daten"
   fi
   local devdir="$WORK/device"; mkdir -p "$devdir"
   if [ -n "$DEVICE_DEBS" ]; then cp "$DEVICE_DEBS"/*.deb "$devdir/"; fi
