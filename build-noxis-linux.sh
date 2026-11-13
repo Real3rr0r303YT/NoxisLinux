@@ -329,22 +329,25 @@ GPUENV
 # GPU-Beschleunigung (Turnip/Zink) ein- oder ausschalten. Nur fuer Phosh,
 # nicht fuer die ganze Sitzung: so bleibt ein Terminal zum Zurueckschalten.
 set -eu
+# Achtung beim Bearbeiten: dieser Block steht in einem nicht gequoteten
+# Heredoc (write_customize). Jedes \$ muss maskiert sein, sonst ersetzt es
+# schon das Bau-Skript auf dem PC – und bricht mit "unbound variable" ab.
 D=/etc/systemd/system/phosh.service.d
-F=$D/90-noxis-gpu.conf
-case "${1:-}" in
+F=\$D/90-noxis-gpu.conf
+case "\${1:-}" in
   an|on)
     [ -f /usr/share/noxis/gpu-env.conf ] || { echo "Mesa fehlt (/opt/mesa-kgsl)"; exit 1; }
-    mkdir -p "$D"
-    printf '[Service]\nEnvironmentFile=/usr/share/noxis/gpu-env.conf\n' > "$F"
+    mkdir -p "\$D"
+    printf '[Service]\nEnvironmentFile=/usr/share/noxis/gpu-env.conf\n' > "\$F"
     systemctl daemon-reload
     echo "GPU an. Wirkt nach: systemctl restart phosh"
     echo "Wenn der Bildschirm danach schwarz bleibt: noxis-gpu aus"
     ;;
   aus|off)
-    rm -f "$F"; systemctl daemon-reload
+    rm -f "\$F"; systemctl daemon-reload
     echo "GPU aus (Software-Rendering). Wirkt nach: systemctl restart phosh"
     ;;
-  *) [ -f "$F" ] && echo "GPU: an" || echo "GPU: aus"
+  *) [ -f "\$F" ] && echo "GPU: an" || echo "GPU: aus"
      echo "Nutzung: noxis-gpu an | aus" ;;
 esac
 GPUSW
