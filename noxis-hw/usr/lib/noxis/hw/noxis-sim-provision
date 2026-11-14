@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# Wartet auf das Modem und weist einen Kartenplatz als primaeren zu.
+# Welcher, steht in /etc/noxis/sim-slot; ohne die Datei der erste Platz
+# mit einer Karte.
+set -u
+H=/usr/lib/noxis/hw/noxis-qmi-pin
+[ -x "$H" ] || exit 0
+log() { echo "noxis-sim-provision: $*"; }
+
+i=0
+while [ "$i" -lt 40 ]; do
+  out=$("$H" status 2>&1) && break
+  i=$((i + 1)); sleep 3
+done
+[ -n "${out:-}" ] || { log "Modem meldet sich nicht"; exit 0; }
+
+if echo "$out" | grep -q '^GW primaer *Platz'; then
+  log "schon zugewiesen: $(echo "$out" | grep '^GW primaer')"
+  exit 0
+fi
+
+slot=$(cat /etc/noxis/sim-slot 2>/dev/null)
+case "$slot" in
+  1|2) ;;
+  *) slot=$(echo "$out" | grep -n '^Platz [12]: Karte da' | head -n1 | sed 's/.*Platz \([12]\).*/\1/') ;;
+esac
+[ -n "$slot" ] || { log "kein Platz mit Karte gefunden"; exit 0; }
+
+log "weise Platz $slot zu"
+"$H" provision "$slot" 2>&1 | sed 's/^/  /'
+exit 0

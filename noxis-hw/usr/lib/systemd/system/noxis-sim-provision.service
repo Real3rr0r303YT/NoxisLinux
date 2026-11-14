@@ -1,0 +1,17 @@
+[Unit]
+# Ohne primaere Zuweisung meldet das Modem "GW primary session index unknown",
+# und ModemManager haelt die Karte fuer fehlend ("sim-missing"). Unter Android
+# setzt die Telefonie-Software das beim Start; hier macht es sonst niemand, und
+# beim Ziehen des Kartenhalters geht es verloren.
+Description=Noxis: Karte als primaere zuweisen (QMI UIM)
+After=noxis-radios.service
+Wants=noxis-radios.service
+Before=ModemManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/noxis/hw/noxis-sim-provision
+
+[Install]
+WantedBy=multi-user.target

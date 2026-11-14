@@ -404,6 +404,8 @@ shell)
       noxis-hw/usr/lib/noxis/hw/noxis-firmware-links \
       noxis-hw/usr/lib/noxis/hw/noxis-radios \
       noxis-hw/usr/lib/noxis/hw/noxis-qmi-pin \
+      noxis-hw/usr/lib/noxis/hw/noxis-sim-provision \
+      noxis-hw/usr/lib/systemd/system/noxis-sim-provision.service \
       noxis-hw/usr/lib/noxis/hw/noxis-to-rescue \
       noxis-hw/usr/share/applications/noxis-rescue.desktop \
       noxis-hw/etc/polkit-1/rules.d/50-noxis-rescue.rules \
@@ -418,6 +420,7 @@ shell)
   done
   # Die Desktop-Sitzung gibt es nicht mehr
   adb shell "rm -f $M/usr/share/wayland-sessions/noxis-desktop.desktop" >/dev/null 2>&1
+  adb shell "ln -sf /usr/lib/systemd/system/noxis-sim-provision.service $M/etc/systemd/system/multi-user.target.wants/noxis-sim-provision.service" >/dev/null 2>&1
   adb shell "sync" >/dev/null 2>&1
   ok "$n Dateien aktualisiert"
   umount_root

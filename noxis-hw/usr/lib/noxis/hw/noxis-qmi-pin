@@ -16,6 +16,7 @@ so wie es Android tut. Ohne AID antwortet das Modem fuer Platz 2 mit
     noxis-qmi-pin status                    beide Kartenplaetze zeigen
     noxis-qmi-pin <Platz> <Datei mit der PIN>
     noxis-qmi-pin <Platz> -                 PIN hier eingeben (unsichtbar)
+    noxis-qmi-pin provision <Platz>         Karte als primaere zuweisen
 
 Knoten und Port des UIM-Dienstes werden selbst gesucht (qrtr-lookup);
 NOXIS_QMI_NODE und NOXIS_QMI_PORT setzen sie von Hand.
@@ -35,6 +36,8 @@ import sys
 AF_QIPCRTR = 42
 UIM_VERIFY_PIN = 0x0026
 UIM_GET_CARD_STATUS = 0x002F
+UIM_CHANGE_PROVISIONING_SESSION = 0x0038
+SESSION_PRIMARY_GW = 0
 SESSION_CARD_SLOT = {1: 6, 2: 7}      # QMI_UIM_SESSION_TYPE_CARD_SLOT_n
 ERR_INCORRECT_PIN = 12
 APP_TYPES = {0: "unbekannt", 1: "sim", 2: "usim", 3: "ruim", 4: "csim", 5: "isim"}
@@ -53,6 +56,21 @@ def build_verify(slot, aid, pin, txn=2):
     body = (struct.pack("<BH", 0x01, len(session)) + session +
             struct.pack("<BH", 0x02, len(info)) + info)
     return header(UIM_VERIFY_PIN, body, txn)
+
+
+def build_provision(slot, aid, txn=3):
+    """Primaere GW-Zuweisung auf diesen Platz legen.
+
+    Ohne sie meldet das Modem 'GW primary session index unknown', und
+    ModemManager haelt die Karte fuer fehlend ('sim-missing'). Unter Android
+    setzt die Telefonie-Software das beim Start; hier macht es niemand, und
+    beim Ziehen des Kartenhalters geht es verloren.
+    """
+    change = bytes([SESSION_PRIMARY_GW, 1])                 # aktivieren
+    appinfo = bytes([slot, len(aid)]) + aid                 # Platz 1-basiert
+    body = (struct.pack("<BH", 0x01, len(change)) + change +
+            struct.pack("<BH", 0x10, len(appinfo)) + appinfo)
+    return header(UIM_CHANGE_PROVISIONING_SESSION, body, txn)
 
 
 def tlvs(data, want_msg):
@@ -77,8 +95,9 @@ def result_of(t):
 
 
 def parse_card_status(v):
-    """TLV 0x10 von 'Get Card Status' -> Liste der Plaetze mit ihren Anwendungen."""
-    pos = 8                                    # vier Index-Felder zu je 16 Bit
+    """TLV 0x10 von 'Get Card Status' -> (Zuweisungen, Liste der Plaetze)."""
+    idx = struct.unpack_from("<4H", v)         # GW/1X, primaer/sekundaer
+    pos = 8
     cards = []
     ncards = v[pos]; pos += 1
     for _ in range(ncards):
@@ -93,10 +112,16 @@ def parse_card_status(v):
             apps.append({"type": atype, "state": astate, "aid": aid,
                          "pin1_state": p1s, "pin1_retries": p1r, "puk1_retries": puk1r})
         cards.append({"state": state, "error": err, "apps": apps})
-    return cards
+    return idx, cards
 
 
-def show(cards):
+def show(idx, cards):
+    names = ("GW primaer", "1X primaer", "GW sekundaer", "1X sekundaer")
+    for name, v in zip(names, idx):
+        if v == 0xFFFF:
+            print("%-13s nicht zugewiesen" % name)
+        else:
+            print("%-13s Platz %d, Anwendung %d" % (name, (v >> 8) + 1, (v & 0xFF) + 1))
     for i, c in enumerate(cards, 1):
         print("Platz %d: %s" % (i, CARD_STATES.get(c["state"], c["state"])))
         for a in c["apps"]:
@@ -142,7 +167,7 @@ def find_uim():
 
 
 def main(argv):
-    if len(argv) not in (2, 3):
+    if len(argv) not in (2, 3):  # status | <Platz> <PIN> | provision <Platz>
         print(__doc__)
         return 1
     try:
@@ -161,7 +186,7 @@ def main(argv):
         print("Kartenstatus nicht lesbar: Ergebnis=%s Fehler=%s" % (res, err))
         return 1
     try:
-        cards = parse_card_status(t[0x10])
+        idx, cards = parse_card_status(t[0x10])
     except (IndexError, ValueError):
         print("Kartenstatus hat ein unerwartetes Format - sende nichts")
         return 1
@@ -178,6 +203,16 @@ def main(argv):
     if app is None:
         print("Platz %d: keine SIM-Anwendung gefunden - sende nichts" % slot)
         return 1
+    if provision:
+        try:
+            t = uim.call(build_provision(slot, app["aid"]), UIM_CHANGE_PROVISIONING_SESSION)
+        except (OSError, socket.timeout) as e:
+            print("keine Antwort auf die Zuweisung: %s" % e)
+            return 1
+        res, err = result_of(t)
+        print("Platz %d als primaere Karte: Ergebnis=%s Fehler=%s" % (slot, res, err))
+        return 0 if res == 0 else 1
+
     if app["pin1_state"] != 1:
         print("Platz %d: PIN1 ist '%s' - nichts zu entsperren"
               % (slot, PIN_STATES.get(app["pin1_state"], app["pin1_state"])))
