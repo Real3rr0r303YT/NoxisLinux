@@ -649,7 +649,10 @@ simpin)
   #
   # Sicherungen im Dienst: er versucht es hoechstens einmal pro Start, nur
   # wenn noch alle 3 Versuche frei sind, und loescht die PIN bei "falsch".
-  printf 'SIM-PIN (wird nicht angezeigt): '
+  printf 'Welcher Kartenplatz ist gesperrt? [1/2] '
+  IFS= read -r simslot
+  case "$simslot" in 1|2) ;; *) die "nur 1 oder 2" ;; esac
+  printf 'SIM-PIN fuer Platz %s (wird nicht angezeigt): ' "$simslot"
   IFS= read -rs pin; echo
   case "$pin" in ''|*[!0-9]*) die "eine SIM-PIN besteht nur aus Ziffern" ;; esac
   [ "${#pin}" -ge 4 ] && [ "${#pin}" -le 8 ] || die "eine SIM-PIN hat 4 bis 8 Ziffern"
@@ -658,6 +661,7 @@ simpin)
   t=$(mktemp); printf '%s' "$pin" > "$t"; pin=""
   umask "$old"
   mkdirs "$M/etc/noxis"
+  adb shell "printf %s $simslot > $M/etc/noxis/sim-slot" >/dev/null 2>&1
   adb push "$t" "$M/etc/noxis/sim-pin" >/dev/null 2>&1 \
     && adb shell "chown 0:0 $M/etc/noxis/sim-pin; chmod 600 $M/etc/noxis/sim-pin" \
     && echo "  ok PIN abgelegt ($(adb shell "ls -ln $M/etc/noxis/sim-pin" | tr -d '\r' | cut -c1-14))"
@@ -673,60 +677,29 @@ f=/etc/noxis/sim-pin
 mkdir -p /var/log/noxis
 exec >> /var/log/noxis/sim.log 2>&1
 echo "=== $(date) ==="
-# Warten, bis ein Modem da ist und bleibt. ModemManager legt es direkt nach
-# dem Start mehrmals neu an; erst wenn dieselbe Nummer zweimal hintereinander
-# gesehen wurde, ist es das endgueltige.
-i=0; last=""; info=""; m=""
+slot=$(cat /etc/noxis/sim-slot 2>/dev/null)
+case "$slot" in 1|2) ;; *) echo "kein Kartenplatz hinterlegt"; exit 0 ;; esac
+h=/usr/lib/noxis/hw/noxis-qmi-pin
+[ -x "$h" ] || { echo "$h fehlt"; exit 0; }
+# Auf das Modem warten: der UIM-Dienst meldet sich erst, wenn es laeuft.
+i=0
 while [ "$i" -lt 40 ]; do
-  m=$(mmcli -L 2>/dev/null | grep -o '/Modem/[0-9]*' | head -n1)
-  if [ -n "$m" ] && [ "$m" = "$last" ]; then
-    info=$(mmcli -m "${m##*/}" 2>/dev/null)
-    echo "$info" | grep -q 'lock: sim-pin *$' && break
-    if echo "$info" | grep -qE 'state: .*(registered|enabled|connected|searching|disabled)'; then
-      echo "SIM ist nicht gesperrt - nichts zu tun"; exit 0
-    fi
-  fi
-  last=$m; i=$((i + 1)); sleep 3
+  "$h" status >/dev/null 2>&1 && break
+  i=$((i + 1)); sleep 3
 done
-echo "$info" | grep -q 'lock: sim-pin *$' || { echo "kein gesperrtes Modem gefunden (Modem: ${m:-keins})"; exit 0; }
-left=$(echo "$info" | grep -o 'sim-pin ([0-9]*)' | head -n1 | tr -dc 0-9)
-echo "Modem $m, verbleibende Versuche: ${left:-?}"
-if [ "${left:-0}" -lt 3 ]; then
-  echo "weniger als 3 Versuche frei - entsperre NICHT automatisch"; exit 0
-fi
-sim=$(echo "$info" | grep 'primary sim path' | grep -o '/SIM/[0-9]*' | head -n1)
-[ -n "$sim" ] || { echo "kein SIM-Pfad"; exit 0; }
-# ModemManager schickt die PIN immer an Kartenplatz 1 (fest im Quelltext:
-# QMI_UIM_SESSION_TYPE_CARD_SLOT_1). Ist ein anderer Platz aktiv, ginge die
-# PIN an die FALSCHE Karte und der Aufruf endete in einer Zeitueberschreitung.
-# Dann spricht noxis-qmi-pin den UIM-Dienst des Modems selbst an und nennt
-# den richtigen Platz.
-slot=$(echo "$info" | grep '(active)' | grep -o 'slot [0-9]*' | tr -dc 0-9)
-if [ -n "$slot" ] && [ "$slot" != 1 ]; then
-  h=/usr/lib/noxis/hw/noxis-qmi-pin
-  [ -x "$h" ] || { echo "aktive SIM in Platz $slot, aber $h fehlt - kein Versuch"; exit 0; }
-  echo "aktive SIM in Platz $slot - sende direkt an den UIM-Dienst"
-  out=$("$h" "$slot" "$f" 2>&1); rc=$?
-  echo "rc=$rc $out"
-  if [ "$rc" = 3 ]; then
-    echo "nichts zu tun laut Karte"; exit 0
-  fi
-  if [ "$rc" = 12 ]; then
-    rm -f "$f"; echo "PIN war FALSCH - gespeicherte PIN geloescht, kein weiterer Versuch"; exit 0
-  fi
-  [ "$rc" = 0 ] || exit 0
-  # ModemManager hat die Sperre noch im Kopf - neu einlesen lassen
-  systemctl restart ModemManager
-  sleep 35
-else
-  out=$(mmcli -i "${sim##*/}" --pin="$(cat "$f")" 2>&1); rc=$?
-  echo "Entsperren von $sim: rc=$rc $out"
-  if echo "$out" | grep -qiE 'incorrect|IncorrectPin|wrong'; then
-    rm -f "$f"; echo "PIN war FALSCH - gespeicherte PIN geloescht, kein weiterer Versuch"
-    exit 0
-  fi
-fi
-sleep 10
+# noxis-qmi-pin prueft selbst, ob dieser Platz gesperrt ist und noch drei
+# Versuche frei hat, und sendet sonst nichts.
+out=$("$h" "$slot" "$f" 2>&1); rc=$?
+echo "Platz $slot: rc=$rc"
+echo "$out"
+case "$rc" in
+  0) ;;
+  12) rm -f "$f"; echo "PIN war FALSCH - gespeicherte PIN geloescht"; exit 0 ;;
+  *) exit 0 ;;
+esac
+# ModemManager hat die Sperre noch im Kopf - neu einlesen lassen
+systemctl restart ModemManager
+sleep 35
 m=$(mmcli -L 2>/dev/null | grep -o '/Modem/[0-9]*' | head -n1)
 mmcli -m "${m##*/}" -e 2>&1 | head -n2
 sleep 20
@@ -766,7 +739,7 @@ UNIT
 
 simpin-aus)
   need_recovery; mount_root
-  adb shell "rm -f $M/etc/noxis/sim-pin $M/etc/systemd/system/multi-user.target.wants/noxis-sim-unlock.service" >/dev/null 2>&1
+  adb shell "rm -f $M/etc/noxis/sim-pin $M/etc/noxis/sim-slot $M/etc/systemd/system/multi-user.target.wants/noxis-sim-unlock.service" >/dev/null 2>&1
   umount_root
   ok "gespeicherte SIM-PIN geloescht, automatisches Entsperren aus"
   ;;

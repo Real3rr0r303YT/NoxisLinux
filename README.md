@@ -376,47 +376,49 @@ Datenpfad des Hersteller-Kernels wird unter Android von `netmgrd`
 eingerichtet. Gespraeche brauchen ausserdem den Audiopfad ueber den ADSP;
 `pd-mapper` startet noch nicht („no pd maps available").
 
-### SIM-PIN: Zeitueberschreitung, weil die SIM in Platz 2 steckt
+### SIM-PIN: ModemManager zielt immer auf Kartenplatz 1
 
-`mmcli -i 1 --pin=…` und der PIN-Dialog der Oberflaeche enden beide mit
+Der PIN-Dialog und `mmcli --pin` enden mit
 `couldn't send PIN code to the SIM: 'Timeout was reached'`, und
-`unlock retries` bleibt bei 3. Die PIN erreicht die Karte nie.
+`unlock retries` bleibt bei 3: die PIN erreicht die Karte nie.
 
-Ursache: ModemManager schickt PIN-Befehle fest an Kartenplatz 1
-(`QMI_UIM_SESSION_TYPE_CARD_SLOT_1` in `mm-sim-qmi.c`). Auf diesem Geraet
-ist Platz 2 der aktive:
+ModemManager schickt PIN-Befehle fest an Kartenplatz 1
+(`QMI_UIM_SESSION_TYPE_CARD_SLOT_1` in `mm-sim-qmi.c`), ohne
+Anwendungskennung. Mit zwei Karten heisst das: **eine PIN aus dem Dialog
+geht immer an die Karte in Platz 1**, auch wenn Platz 2 der aktive ist.
+Und ist die Karte in Platz 1 gesperrt, weigert sich ModemManager, das Modem
+einzuschalten – selbst wenn die aktive Karte in Platz 2 gar keine PIN hat.
 
+`noxis-qmi-pin` spricht den UIM-Dienst des Modems selbst an (QMI ueber
+QRTR). Es liest zuerst `Get Card Status` (0x002F), nimmt daraus die Kennung
+(AID) der USIM-Anwendung im gewuenschten Platz und schickt die PIN mit
+dieser AID – ohne sie antwortet das Modem fuer Platz 2 mit `AccessDenied`
+(82). Auf dem Geraet bestaetigt: `Ergebnis=0`, Karte entsperrt.
+
+```bash
+noxis-qmi-pin status      # beide Plaetze: gesperrt? wie viele Versuche frei?
+noxis-qmi-pin 1 -         # Platz 1 entsperren, PIN unsichtbar eingeben
 ```
-sim slot paths: slot 1: /org/freedesktop/ModemManager1/SIM/0
-                slot 2: /org/freedesktop/ModemManager1/SIM/1 (active)
+
+`status` sendet nichts und zeigt die Zaehler, wie die Karte selbst sie
+meldet. Vor jedem Versuch lesen – bei zwei Karten kostet ein Fehlversuch
+die Versuche der *anderen* Karte.
+
+Damit es jeden Start ueberlebt:
+
+```bash
+./kernel/tools/noxis-diag.sh simpin       # fragt Platz und PIN am Rechner ab
+./kernel/tools/noxis-diag.sh simpin-aus   # PIN wieder vom Handy loeschen
 ```
 
-Die PIN geht also an die Karte in Platz 1 – wenn dort eine andere SIM mit
-eigener PIN steckt, kostet das deren Versuche. **Darum nicht wiederholen.**
+Die PIN liegt dann in `/etc/noxis/sim-pin`, lesbar nur fuer root, der Platz
+in `/etc/noxis/sim-slot`. Der Dienst entsperrt beim Start und startet
+ModemManager danach neu. Sicherungen: `noxis-qmi-pin` sendet nur, wenn
+dieser Platz „gesperrt" mit drei freien Versuchen meldet; bei „PIN falsch"
+wird die gespeicherte PIN geloescht; in keinem Protokoll steht die PIN.
 
-Abhilfe: `noxis-qmi-pin` spricht den UIM-Dienst des Modems selbst an (QMI
-ueber QRTR, Nachricht „Verify PIN" 0x0026) und nennt den richtigen Platz
-(`card-slot-2`). `noxis-diag.sh simpin` legt die PIN root-lesbar aufs Handy;
-ein Dienst entsperrt beim Start – ueber ModemManager, wenn Platz 1 aktiv ist,
-sonst ueber `noxis-qmi-pin` – und startet ModemManager danach neu, damit es
-die aufgehobene Sperre einliest.
-
-Die Platzangabe allein genuegt nicht: ohne die Kennung (AID) der
-USIM-Anwendung antwortet das Modem fuer Platz 2 mit `AccessDenied` (82).
-`noxis-qmi-pin` liest deshalb zuerst den Kartenstatus (`Get Card Status`,
-0x002F) und schickt die PIN mit der AID daraus – so wie Android es tut.
-`noxis-qmi-pin status` zeigt je Platz, ob die PIN gesperrt ist und wie viele
-Versuche die Karte selbst noch meldet – ohne etwas zu senden.
-
-**Bei zwei SIM-Karten aufpassen:** `mmcli --pin` und der PIN-Dialog schicken
-die PIN immer an Platz 1, also an die *andere* Karte. Ein falscher Versuch
-geht dann auf deren Konto. Vor jedem Versuch `noxis-qmi-pin status` lesen.
-
-Sicherungen: hoechstens ein Versuch pro Start, nur bei drei freien
-Versuchen, die gespeicherte PIN wird geloescht, sobald die Karte sie
-ablehnt, und sie steht in keinem Protokoll. `simpin-aus` entfernt sie.
-Ohne gespeicherte PIN geht es auch: SIM in Platz 1 stecken oder die
-PIN-Abfrage der SIM abschalten.
+Ohne gespeicherte PIN geht es auch: die PIN-Abfrage der Karte in Platz 1 in
+einem anderen Handy abschalten.
 
 Die polkit-Meldung davor war ein eigener, kleinerer Fehler
 (`50-noxis-modem.rules`).
@@ -449,7 +451,8 @@ Auf ein bestehendes System: `noxis-diag.sh brand`.
 | WLAN mit WPA3 (SAE) | geht nicht, im Treiber abgeschaltet |
 | Internet, DNS, Zeitabgleich | geht (Killswitch beachten) |
 | Tor Browser, Mullvad-Oberflaeche | **geht** |
-| Mobilfunk | Modem wird erkannt (SIM gesperrt, PIN-Abfrage hakt noch). Daten und Sprache offen |
+| SIM entsperren | **geht** ueber `noxis-qmi-pin` (der PIN-Dialog nicht) |
+| Mobilfunk | Modem laeuft, Netzanmeldung noch nicht bestaetigt. Daten und Sprache offen |
 | GPU-Beschleunigung | ungetestet, nur auf Wunsch (`noxis-gpu an`) |
 | Bluetooth | ungetestet |
 | USB-Shell vom Rechner | Schnittstelle steht, das Handy antwortet nicht |
