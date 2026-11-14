@@ -230,7 +230,8 @@ mv "$d/net.log.new" "$d/net.log"
   echo "--- wwan/rpmsg ---"; ls /dev/wwan* /dev/rpmsg* /sys/bus/rpmsg/devices /sys/class/wwan 2>&1 | head -30
   echo "--- MM-Regeln fuer Qualcomm-SoC ---"; grep -vE '^\s*#|^$' /usr/lib/udev/rules.d/77-mm-qcom-soc.rules 2>&1 | head -40
   echo "--- ModemManager-Journal ---"; journalctl -b --no-pager -u ModemManager 2>&1 | tail -45
-  echo "--- mmcli ---"; mmcli -L 2>&1; mmcli -m any 2>&1 | sed 's/[0-9]\{14,\}/<Nummer>/g' | head -50
+  echo "--- mmcli ---"; mmcli -L 2>&1; mmcli -m any 2>&1 | grep -v "allowed:" | sed 's/[0-9]\{14,\}/<Nummer>/g' | head -60
+  echo "--- SIM ---"; for i in 0 1 2 3 4 5; do mmcli -i $i 2>/dev/null | sed 's/[0-9]\{10,\}/<Nummer>/g'; done | head -30
   echo "--- SIM/Modem im dmesg ---"; dmesg | grep -aiE "uim|sim |subsys|sysmon|rmtfs|rfsa|efs|modem.*(crash|fatal|restart)|ssr" | tail -25
 } > "$d/modem.log" 2>&1
 { echo "--- KGSL ---"; ls -la /dev/kgsl* /dev/dma_heap 2>&1
@@ -387,6 +388,7 @@ shell)
       noxis-hw/etc/systemd/system/upower.service.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/rmtfs.service.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/pd-mapper.service.d/90-noxis.conf \
+      noxis-hw/etc/systemd/system/ModemManager.service.d/90-noxis.conf \
       noxis-hw/usr/lib/udev/rules.d/70-noxis-gpu.rules \
       noxis-hw/usr/lib/udev/rules.d/65-noxis-rmtfs.rules \
       noxis-hw/usr/lib/udev/rules.d/78-noxis-modem.rules \

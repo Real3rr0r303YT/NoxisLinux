@@ -403,9 +403,8 @@ Auf ein bestehendes System: `noxis-diag.sh brand`.
 | WLAN (WPA2) | **geht** – braucht `WCNSS_qcom_cfg.ini`, `regulatory.db`, `sae_enabled=0` |
 | WLAN mit WPA3 (SAE) | geht nicht, im Treiber abgeschaltet |
 | Internet, DNS, Zeitabgleich | geht (Killswitch beachten) |
-| Tor Browser | **geht** |
-| Mullvad-Oberflaeche | zwei Ursachen gefunden und korrigiert, noch nicht bestaetigt |
-| Mobilfunk | Modem laeuft, ModemManager verwarf es; udev-Regel ergaenzt, noch nicht bestaetigt. Daten und Sprache offen |
+| Tor Browser, Mullvad-Oberflaeche | **geht** |
+| Mobilfunk | Modem wird erkannt (SIM gesperrt, PIN-Abfrage hakt noch). Daten und Sprache offen |
 | GPU-Beschleunigung | ungetestet, nur auf Wunsch (`noxis-gpu an`) |
 | Bluetooth | ungetestet |
 | USB-Shell vom Rechner | Schnittstelle steht, das Handy antwortet nicht |
