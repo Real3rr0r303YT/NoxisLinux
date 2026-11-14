@@ -138,14 +138,55 @@ an() {
   if [ -n "$cid" ]; then ok "  gebunden, Kanal $cid"
   else c "  $(echo "$bind" | grep -i error | head -1)"; fi
 
+  # Ist ueberhaupt eine Paketdaten-Anmeldung da? Ohne die wartet
+  # 'start network' bis zur Zeitueberschreitung, ohne je zu antworten.
+  serv=$(q --nas-get-serving-system)
+  ps=$(echo "$serv" | sed -n 's/.*PS attach state: *.\{0,1\}\([a-z]*\).*/\1/p' | head -n1)
+  case "$ps" in
+    attached) ok "  Paketdaten angemeldet" ;;
+    "")       c "  Paketdaten-Status unbekannt" ;;
+    *)        c "  Paketdaten NICHT angemeldet ($ps) - das Netz laesst noch keine Daten zu" ;;
+  esac
+
+  # qmicli gibt 'start network' nur 45 Sekunden. Das reicht fuer die erste
+  # Einbuchung oft nicht, und dann sieht man die Fehlermeldung des Modems
+  # gar nicht, sondern nur 'Transaction timed out'. Mehr Zeit geben, wenn
+  # diese Fassung von qmicli das kann.
+  TMO=""
+  qmicli --help-all 2>/dev/null | grep -q -- '--timeout' && TMO="--timeout=180"
+
+  versuch() {   # $1 Beschreibung, $2 Argument fuer --wds-start-network
+    c "  Versuch: $1"
+    start=$(q $TMO --wds-start-network="$2" ${cid:+--client-cid=$cid} --client-no-release-cid)
+    handle=$(echo "$start" | feld "Packet data handle")
+    [ -n "$handle" ] && { ok "    verbunden"; return 0; }
+    echo "$start" | grep -iE "error|timed out|call end reason" | sed -n 's/^\t*/    /p' | head -3
+    return 1
+  }
+
   c "Verbindung aufbauen${apn:+ (APN $apn)}"
-  start=$(q --wds-start-network="${apn:+apn=$apn,}ip-type=4" ${cid:+--client-cid=$cid} --client-no-release-cid)
-  echo "$start" | sed -n 's/^\t*/  /p' | head -4
-  handle=$(echo "$start" | feld "Packet data handle")
+  handle=""
+  versuch "IPv4" "${apn:+apn=$apn,}ip-type=4" \
+    || versuch "IPv4 und IPv6" "${apn:+apn=$apn,}ip-type=10" \
+    || {
+      # Manche Modems ignorieren einen mitgegebenen APN und wollen ein
+      # hinterlegtes Profil. Also eines anlegen und darueber starten.
+      if [ -n "$apn" ]; then
+        prof=$(q --wds-create-profile="3gpp,name=noxis,apn=$apn,pdp-type=ipv4" | feld "Profile index")
+        [ -n "$prof" ] && versuch "Profil $prof" "profile-index=$prof,ip-type=4"
+      fi
+    }
+
   [ -n "$cid" ] || cid=$(echo "$start" | feld "CID")
   [ -n "$handle" ] || {
     no "Verbindung nicht zustande gekommen"
-    c "Falls 'InvalidOperation' bleibt, passen die Endpunkt-Werte nicht."
+    case "$ps" in
+      attached|"") ;;
+      *) c "Das Netz hat die Paketdaten noch nicht freigegeben ($ps)." ;;
+    esac
+    echo "$start" | grep -qi "timed out" && \
+      c "Das Modem hat gar nicht geantwortet - es versucht noch einzubuchen."
+    c "Falls 'InvalidOperation' zurueckkommt, passen die Endpunkt-Werte nicht."
     c "Andere ausprobieren, z.B. in $CONF:  EPIFACE=0   oder   RXID=1 TXID=14"
     exit 1
   }
