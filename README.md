@@ -446,6 +446,46 @@ einem anderen Handy abschalten.
 Die polkit-Meldung davor war ein eigener, kleinerer Fehler
 (`50-noxis-modem.rules`).
 
+### Offen: ModemManager findet das Modem nicht (Datenformat)
+
+Stand 14.11.2026. Karten entsperrt, Zuweisung gesetzt, Modem laeuft – und
+trotzdem `mmcli -L: No modems were found`. Im Protokoll wiederholt sich:
+
+```
+[device qcom-soc] creating modem with plugin 'qcom-soc' and '2' ports
+[modemNN/qrtr0/qmi] Couldn't setup data format: QMI protocol error (48): 'InvalidArgument'
+Cannot read from istream: connection broken
+[modemNN] port 'qrtr0' no longer controllable, reprobing
+```
+
+Die erste Zeile ist der Ausloeser, der Rest Folge: mit der abgebrochenen
+Verbindung verliert ModemManager den Anschluss und legt ein neues Modem an –
+bis in die Fuenfzigerstellen (`modem58`). Jeder `systemctl restart
+ModemManager` treibt den Zaehler weiter, offenbar belegt jeder Fehlversuch
+beim Modem einen Kanal. **Nicht wiederholt neu starten, sondern neu booten.**
+
+Vermutete Ursache, nicht bewiesen: der Hersteller-Kernel stellt die
+Datenstrecke als `rmnet_ipa0` ueber den IPA-Treiber bereit. Unter Android
+richtet die `netmgrd` ein; ModemManager erwartet den Mainline-Treiber `ipa`
+mit rmnet-Links und handelt das Datenformat ueber WDA aus, was dieses Modem
+mit `InvalidArgument` ablehnt. Ohne die udev-Regel `78-noxis-modem.rules`
+scheitert es stattdessen frueher mit „Failed to find a net port in the QMI
+modem" – beide Wege enden ohne Modem.
+
+Daraus folgt auch: **mobile Daten sind damit noch nicht gewonnen**, selbst
+wenn die Schleife verschwindet. Erreichbar waeren zuerst Netzanmeldung und
+SMS; Telefonie braucht zusaetzlich den Audiopfad ueber den ADSP, und
+`pd-mapper` startet noch nicht („no pd maps available").
+
+Naechster Schritt beim Weitermachen – der Anfang des Protokolls eines
+frischen Starts, nicht das Ende:
+
+```bash
+sudo journalctl -b -u ModemManager --no-pager | head -60
+```
+
+Dort steht, wie weit der erste Versuch kommt, bevor die Schleife beginnt.
+
 ### Netzdiagnose
 
 `noxis-diag.sh install` richtet einen Dienst ein, der alle 20 Sekunden einen
@@ -474,8 +514,8 @@ Auf ein bestehendes System: `noxis-diag.sh brand`.
 | WLAN mit WPA3 (SAE) | geht nicht, im Treiber abgeschaltet |
 | Internet, DNS, Zeitabgleich | geht (Killswitch beachten) |
 | Tor Browser, Mullvad-Oberflaeche | **geht** |
-| SIM entsperren | **geht** ueber `noxis-qmi-pin` (der PIN-Dialog nicht) |
-| Mobilfunk | Modem laeuft, Netzanmeldung noch nicht bestaetigt. Daten und Sprache offen |
+| SIM entsperren, Kartenzuweisung | **geht** ueber `noxis-qmi-pin` (der PIN-Dialog nicht) |
+| Mobilfunk | Modem laeuft, ModemManager findet es nicht (Datenformat). Daten und Sprache offen |
 | GPU-Beschleunigung | ungetestet, nur auf Wunsch (`noxis-gpu an`) |
 | Bluetooth | ungetestet |
 | USB-Shell vom Rechner | Schnittstelle steht, das Handy antwortet nicht |
