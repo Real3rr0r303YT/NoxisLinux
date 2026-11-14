@@ -31,16 +31,18 @@ q() { qmicli -p -d "$DEV" "$@" 2>&1; }
 
 feld() { sed -n "s/.*$1: *'\{0,1\}\([^']*\)'\{0,1\}.*/\1/p" | head -n1; }
 
+heimnetz() { q --nas-get-home-network; }
+
 apn_holen() {
   [ -n "${1:-}" ] && { echo "$1"; return; }
   [ -s "$APNFILE" ] && { head -n1 "$APNFILE"; return; }
-  # Aus der Netzkennung raten, sonst leer lassen: viele Netze vergeben die
-  # Einstellungen ohnehin selbst, wenn der Name leer bleibt.
-  mccmnc=$(q --nas-get-home-network | feld "MCC")$(q --nas-get-home-network | feld "MNC")
-  case "$mccmnc" in
-    26202|26204|26209) echo "web.vodafone.de" ;;
-    26201|26206)       echo "internet.telekom" ;;
-    26203|26277|26207|26208) echo "internet" ;;
+  h=${2:-$(heimnetz)}                      # einmal abfragen, nicht zweimal
+  mcc=$(echo "$h" | feld "MCC")
+  mnc=$(echo "$h" | feld "MNC")
+  case "$mcc$mnc" in
+    26202|2622|26204|26209|26242) echo "web.vodafone.de" ;;
+    26201|2621|26206)             echo "internet.telekom" ;;
+    26203|2623|26207|26208|26277) echo "internet" ;;
     *) echo "" ;;
   esac
 }
@@ -62,8 +64,17 @@ pruefen() {
   q --nas-get-serving-system | sed -n 's/^\t*/  /p' | grep -iE "registration|operator|roaming|technolog" | head -6
   c "Datenformat (hier scheitert ModemManager)"
   q --wda-get-data-format | sed -n 's/^\t*/  /p' | head -6
+  c "Anbieter der zugewiesenen Karte"
+  h=$(heimnetz)
+  echo "$h" | sed -n 's/^\t*/  /p' | grep -iE "MCC|MNC|Description" | head -3
   c "APN"
-  echo "  $(apn_holen "" ) ${APNFILE:+(aenderbar in $APNFILE)}"
+  a=$(apn_holen "" "$h")
+  if [ -n "$a" ]; then
+    echo "  $a   (aenderbar in $APNFILE oder als Argument)"
+  else
+    no "nicht erkannt - beim Verbinden mitgeben, z.B.:"
+    echo "      sudo $0 an web.vodafone.de"
+  fi
 }
 
 warte_netz() {
@@ -81,6 +92,7 @@ an() {
   root
   command -v qmicli >/dev/null 2>&1 || { no "qmicli fehlt - sudo apt install libqmi-utils"; exit 1; }
   apn=$(apn_holen "${1:-}")
+  [ -n "$apn" ] || c "kein APN bekannt - versuche es ohne; viele Netze vergeben ihn selbst"
 
   if systemctl is-active --quiet ModemManager 2>/dev/null; then
     c "halte ModemManager an (er legt sonst im Kreis neue Modems an)"
