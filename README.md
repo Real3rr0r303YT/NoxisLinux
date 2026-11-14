@@ -394,15 +394,18 @@ sim slot paths: slot 1: /org/freedesktop/ModemManager1/SIM/0
 Die PIN geht also an die Karte in Platz 1 – wenn dort eine andere SIM mit
 eigener PIN steckt, kostet das deren Versuche. **Darum nicht wiederholen.**
 
-Abhilfe, bis ModemManager das kann:
+Abhilfe: `noxis-qmi-pin` spricht den UIM-Dienst des Modems selbst an (QMI
+ueber QRTR, Nachricht „Verify PIN" 0x0026) und nennt den richtigen Platz
+(`card-slot-2`). `noxis-diag.sh simpin` legt die PIN root-lesbar aufs Handy;
+ein Dienst entsperrt beim Start – ueber ModemManager, wenn Platz 1 aktiv ist,
+sonst ueber `noxis-qmi-pin` – und startet ModemManager danach neu, damit es
+die aufgehobene Sperre einliest.
 
-- die SIM in **Platz 1** des Kartenhalters stecken, oder
-- die PIN-Abfrage der SIM in einem anderen Handy abschalten.
-
-`noxis-diag.sh simpin` (SIM beim Start entsperren) prueft den Platz und
-sendet nichts, wenn die aktive SIM nicht in Platz 1 steckt. Es versucht es
-hoechstens einmal pro Start, nur bei drei freien Versuchen, und loescht die
-gespeicherte PIN, sobald die Karte sie ablehnt. `simpin-aus` entfernt sie.
+Sicherungen: hoechstens ein Versuch pro Start, nur bei drei freien
+Versuchen, die gespeicherte PIN wird geloescht, sobald die Karte sie
+ablehnt, und sie steht in keinem Protokoll. `simpin-aus` entfernt sie.
+Ohne gespeicherte PIN geht es auch: SIM in Platz 1 stecken oder die
+PIN-Abfrage der SIM abschalten.
 
 Die polkit-Meldung davor war ein eigener, kleinerer Fehler
 (`50-noxis-modem.rules`).

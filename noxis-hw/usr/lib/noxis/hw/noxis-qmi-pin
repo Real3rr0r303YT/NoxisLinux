@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+"""SIM-PIN direkt ans Modem schicken, fuer einen bestimmten Kartenplatz.
+
+ModemManager schickt PIN-Befehle fest an Kartenplatz 1
+(QMI_UIM_SESSION_TYPE_CARD_SLOT_1). Steckt die aktive SIM in Platz 2, laeuft
+das Entsperren in eine Zeitueberschreitung. Dieses Programm spricht den
+UIM-Dienst des Modems selbst an (QMI ueber QRTR) und nennt den richtigen
+Platz.
+
+    noxis-qmi-pin <Knoten> <Port> <Platz> <Datei mit der PIN>
+
+Die PIN wird aus der Datei gelesen und nie ausgegeben.
+Rueckgabe: 0 entsperrt, 12 PIN falsch, 1 anderer Fehler.
+"""
+import ctypes
+import socket
+import struct
+import sys
+
+AF_QIPCRTR = 42
+UIM_VERIFY_PIN = 0x0026
+SESSION_CARD_SLOT = {1: 6, 2: 7}      # QMI_UIM_SESSION_TYPE_CARD_SLOT_n
+ERR_INCORRECT_PIN = 12
+
+
+def build_request(slot, pin, txn=1):
+    session = struct.pack("<BHBB", 0x01, 2, SESSION_CARD_SLOT[slot], 0)   # ohne AID
+    info = bytes([1, len(pin)]) + pin                                      # PIN1
+    body = session + struct.pack("<BH", 0x02, len(info)) + info
+    return struct.pack("<BHHH", 0, txn, UIM_VERIFY_PIN, len(body)) + body
+
+
+def parse_response(data):
+    """-> (ist_antwort, ergebnis, fehler, versuche) aus einer QMI-Nachricht."""
+    if len(data) < 7:
+        return False, None, None, None
+    kind, _txn, msg, length = struct.unpack_from("<BHHH", data)
+    if kind != 2 or msg != UIM_VERIFY_PIN:
+        return False, None, None, None
+    result = error = retries = None
+    pos, end = 7, min(len(data), 7 + length)
+    while pos + 3 <= end:
+        t, n = struct.unpack_from("<BH", data, pos)
+        val = data[pos + 3:pos + 3 + n]
+        if t == 0x02 and n >= 4:
+            result, error = struct.unpack_from("<HH", val)
+        elif t == 0x10 and n >= 1:
+            retries = val[0]
+        pos += 3 + n
+    return True, result, error, retries
+
+
+def main(argv):
+    if len(argv) != 5:
+        print(__doc__)
+        return 1
+    node, port, slot = int(argv[1]), int(argv[2]), int(argv[3])
+    if slot not in SESSION_CARD_SLOT:
+        print("nur Platz 1 oder 2")
+        return 1
+    with open(argv[4], "rb") as f:
+        pin = f.read().strip()
+    if not (4 <= len(pin) <= 8 and pin.isdigit()):
+        print("PIN-Datei enthaelt keine 4- bis 8-stellige Zahl")
+        return 1
+    # Nicht jedes Python ist mit AF_QIPCRTR gebaut. Der Socket laesst sich
+    # trotzdem ueber die Familiennummer oeffnen; gesendet wird dann ueber die
+    # libc mit einer von Hand gepackten sockaddr_qrtr.
+    try:
+        s = socket.socket(AF_QIPCRTR, socket.SOCK_DGRAM)
+    except OSError as e:
+        print("QRTR-Socket nicht moeglich: %s" % e)
+        return 1
+    s.settimeout(20)
+    msg = build_request(slot, pin)
+    addr = struct.pack("<HxxII", AF_QIPCRTR, node, port)      # struct sockaddr_qrtr
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.sendto(s.fileno(), msg, len(msg), 0, addr, len(addr)) != len(msg):
+        print("Senden fehlgeschlagen: errno %d" % ctypes.get_errno())
+        return 1
+    try:
+        while True:
+            data = s.recv(4096)
+            ok, result, error, retries = parse_response(data)
+            if ok:
+                break
+    except socket.timeout:
+        print("keine Antwort vom Modem")
+        return 1
+    print("Platz %d: Ergebnis=%s Fehler=%s verbleibende Versuche=%s" % (slot, result, error, retries))
+    if result == 0:
+        return 0
+    return ERR_INCORRECT_PIN if error == ERR_INCORRECT_PIN else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

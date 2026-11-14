@@ -690,21 +690,33 @@ fi
 sim=$(echo "$info" | grep 'primary sim path' | grep -o '/SIM/[0-9]*' | head -n1)
 [ -n "$sim" ] || { echo "kein SIM-Pfad"; exit 0; }
 # ModemManager schickt die PIN immer an Kartenplatz 1 (fest im Quelltext:
-# QMI_UIM_SESSION_TYPE_CARD_SLOT_1). Ist ein anderer Platz aktiv, geht die PIN
-# an die FALSCHE Karte und der Aufruf endet in einer Zeitueberschreitung.
-# Dann nicht senden - sonst verbraucht jeder Start einen Versuch der Karte
-# in Platz 1.
+# QMI_UIM_SESSION_TYPE_CARD_SLOT_1). Ist ein anderer Platz aktiv, ginge die
+# PIN an die FALSCHE Karte und der Aufruf endete in einer Zeitueberschreitung.
+# Dann spricht noxis-qmi-pin den UIM-Dienst des Modems selbst an und nennt
+# den richtigen Platz.
 slot=$(echo "$info" | grep '(active)' | grep -o 'slot [0-9]*' | tr -dc 0-9)
 if [ -n "$slot" ] && [ "$slot" != 1 ]; then
-  echo "aktive SIM steckt in Platz $slot - ModemManager kann nur Platz 1 entsperren. Kein Versuch."
-  echo "Abhilfe: SIM in Platz 1 stecken oder die PIN-Abfrage der SIM abschalten."
-  exit 0
-fi
-out=$(mmcli -i "${sim##*/}" --pin="$(cat "$f")" 2>&1); rc=$?
-echo "Entsperren von $sim: rc=$rc $out"
-if echo "$out" | grep -qiE 'incorrect|IncorrectPin|wrong'; then
-  rm -f "$f"; echo "PIN war FALSCH - gespeicherte PIN geloescht, kein weiterer Versuch"
-  exit 0
+  h=/usr/lib/noxis/hw/noxis-qmi-pin
+  [ -x "$h" ] || { echo "aktive SIM in Platz $slot, aber $h fehlt - kein Versuch"; exit 0; }
+  set -- $(qrtr-lookup 2>/dev/null | awk '$1==11 {print $4, $5; exit}')
+  [ -n "${2:-}" ] || { echo "UIM-Dienst nicht gefunden (qrtr-lookup) - kein Versuch"; exit 0; }
+  echo "aktive SIM in Platz $slot - sende direkt an den UIM-Dienst (Knoten $1, Port $2)"
+  out=$("$h" "$1" "$2" "$slot" "$f" 2>&1); rc=$?
+  echo "rc=$rc $out"
+  if [ "$rc" = 12 ]; then
+    rm -f "$f"; echo "PIN war FALSCH - gespeicherte PIN geloescht, kein weiterer Versuch"; exit 0
+  fi
+  [ "$rc" = 0 ] || exit 0
+  # ModemManager hat die Sperre noch im Kopf - neu einlesen lassen
+  systemctl restart ModemManager
+  sleep 35
+else
+  out=$(mmcli -i "${sim##*/}" --pin="$(cat "$f")" 2>&1); rc=$?
+  echo "Entsperren von $sim: rc=$rc $out"
+  if echo "$out" | grep -qiE 'incorrect|IncorrectPin|wrong'; then
+    rm -f "$f"; echo "PIN war FALSCH - gespeicherte PIN geloescht, kein weiterer Versuch"
+    exit 0
+  fi
 fi
 sleep 10
 m=$(mmcli -L 2>/dev/null | grep -o '/Modem/[0-9]*' | head -n1)
@@ -713,6 +725,9 @@ sleep 20
 echo "--- Stand danach ---"
 mmcli -m "${m##*/}" 2>&1 | grep -iE 'state|lock|retries|operator|signal|access tech|registration' | sed 's/[0-9]\{10,\}/<Nummer>/g'
 EOS
+  mkdirs "$M/usr/lib/noxis/hw"
+  adb push "$REPO/noxis-hw/usr/lib/noxis/hw/noxis-qmi-pin" "$M/usr/lib/noxis/hw/noxis-qmi-pin" >/dev/null 2>&1 \
+    && adb shell "chmod 755 $M/usr/lib/noxis/hw/noxis-qmi-pin" && echo "  ok Helfer fuer Kartenplatz 2"
   mkdirs "$M/usr/local/sbin"
   adb push "$t" "$M/usr/local/sbin/noxis-sim-unlock" >/dev/null 2>&1 \
     && adb shell "chmod 755 $M/usr/local/sbin/noxis-sim-unlock" && echo "  ok Dienstprogramm"
