@@ -13,7 +13,6 @@ SYS = os.environ.get("NOXIS_SYS", "/sys")
 
 SESSIONS = {
     "mobile":  {"cmd": ["phosh-session"], "env": ["NOXIS_MODE=mobile"]},
-    "desktop": {"cmd": ["phosh-session"], "env": ["NOXIS_MODE=desktop"]},
 }
 
 
@@ -79,7 +78,9 @@ def has_external(drm=None):
 
 
 def default_mode(drm=None):
-    return "desktop" if has_external(drm) else "mobile"
+    # Die Desktop-Sitzung ist entfernt: auf dem Handy brachte sie nichts ausser
+    # einem zweiten Knopf bei der Anmeldung. Es gibt nur noch die mobile Sitzung.
+    return "mobile"
 
 
 class PinState:

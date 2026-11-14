@@ -164,9 +164,9 @@ def drm(states):
 r = drm({"card0-DSI-1": "connected", "card0-DP-1": "disconnected"})
 check("phone display only → mobile", core.default_mode(r) == "mobile")
 r = drm({"card0-DSI-1": "connected", "card0-DP-1": "connected"})
-check("DP connected → desktop", core.default_mode(r) == "desktop")
+check("DP connected → still mobile (desktop session removed)", core.default_mode(r) == "mobile")
 r = drm({"card0-DSI-1": "connected", "card1-DVI-I-1": "connected"})
-check("DisplayLink (evdi, DVI-I) → Desktop", core.default_mode(r) == "desktop")
+check("DisplayLink (evdi, DVI-I) → still mobile", core.default_mode(r) == "mobile")
 check("outputs with internal/external flag", core.connected_outputs(r) == [("DSI-1", True), ("DVI-I-1", False)])
 r = drm({"card0-DSI-1": "connected", "card0-Virtual-1": "connected", "card0-DP-1": "disconnected"})
 check("Qualcomm-Writeback Virtual-1 ist kein Monitor → mobil", core.default_mode(r) == "mobile")
@@ -283,13 +283,13 @@ for bg in ("noxis-portrait.png", "noxis-landscape.png"):
 ov = open(os.path.join(PKG, "usr/share/glib-2.0/schemas/90_noxis-shell.gschema.override")).read()
 check("schema override points to existing wallpapers",
       all(os.path.exists(PKG + u) for u in __import__("re").findall(r"file://(/[^']+)", ov)))
-for f in ("noxis-mobile.desktop", "noxis-desktop.desktop"):
+for f in ("noxis-mobile.desktop",):
     t = open(os.path.join(PKG, "usr/share/wayland-sessions", f)).read()
     check(f"{f}: NOXIS_MODE + phosh-session", "NOXIS_MODE=" in t and "phosh-session" in t)
 check("greeter and dock scripts executable",
       all(os.access(os.path.join(PKG, p), os.X_OK) for p in ("usr/lib/noxis/noxis-dock", "usr/lib/noxis/greeter/noxis-greeter")))
 check("greeter sessions = Wayland sessions",
-      set(core.SESSIONS) == {"mobile", "desktop"} and all(s["cmd"] == ["phosh-session"] for s in core.SESSIONS.values()))
+      set(core.SESSIONS) == {"mobile"} and all(s["cmd"] == ["phosh-session"] for s in core.SESSIONS.values()))
 pi = open(os.path.join(PKG, "DEBIAN/postinst")).read()
 check("postinst: noxis-dm as display-manager.service", "noxis-dm.service /etc/systemd/system/display-manager.service" in pi)
 check("postinst: greeter system user without shell", "--system" in pi and "nologin" in pi)
@@ -325,7 +325,7 @@ check("no battery → hidden", st["battery"] is None)
 import i18n  # noqa: E402
 keys = set(__import__("re").findall(r'i18n\.tr\(self\.lang, "([a-z_]+)"', src))
 keys |= set(__import__("re").findall(r'i18n\.tr\(lang, "([a-z_]+)"', src))
-keys |= {"mobile", "desktop", "reboot", "poweroff", "wrong_pin", "extra", "pin_expired", "error", "det_network", "det_lang"}
+keys |= {"mobile", "reboot", "poweroff", "wrong_pin", "extra", "pin_expired", "error", "det_network", "det_lang"}
 check(f"all {len(keys)} greeter texts exist in 7 languages", keys <= set(i18n.T) and all(len(i18n.T[k]) == 7 for k in keys), keys - set(i18n.T))
 icons = set(__import__("re").findall(r'"([a-z-]+-symbolic)"', src + open(os.path.join(GREETER, "core.py")).read()))
 check(f"{len(icons)} symbolic icons (Adwaita names)", all(i.endswith("-symbolic") for i in icons) and len(icons) >= 10, icons)

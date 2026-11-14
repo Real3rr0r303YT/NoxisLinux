@@ -21,7 +21,7 @@ from greetd_ipc import Greetd, GreetdError  # noqa: E402
 
 BRAND = os.environ.get("NOXIS_BRANDING", "/usr/share/noxis/branding")
 HERE = os.path.dirname(os.path.realpath(__file__))
-SESSION_ICONS = {"mobile": "phone-symbolic", "desktop": "video-display-symbolic"}
+SESSION_ICONS = {"mobile": "phone-symbolic"}
 
 
 def icon_label(icon, text, css=None):
@@ -114,19 +114,6 @@ class Greeter(Gtk.ApplicationWindow):
 
         foot = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, css_classes=["noxis-foot"])
         self.mode_btns, self.mode_lbls = {}, {}
-        group = None
-        for key in ("mobile", "desktop"):
-            b = Gtk.ToggleButton(css_classes=["noxis-chip"])
-            content, lbl = icon_label(SESSION_ICONS[key], "")
-            b.set_child(content)
-            if group:
-                b.set_group(group)
-            group = group or b
-            b.set_active(key == self.mode)
-            b.connect("toggled", self.on_mode, key)
-            foot.append(b)
-            self.mode_btns[key], self.mode_lbls[key] = b, lbl
-        foot.append(Gtk.Box(width_request=18))
         self.power_btns = {}
         for icon, key, cmd in (("system-reboot-symbolic", "reboot", "reboot"),
                                ("system-shutdown-symbolic", "poweroff", "poweroff")):

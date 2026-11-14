@@ -149,7 +149,7 @@ read -r a; [ "$a" = j ] || { c "nicht geflasht. Spaeter: ./build-noxis-linux.sh 
 echo
 ok "Fertig nach $(( ($(date +%s) - START) / 60 )) Minuten."
 c "Erster Start dauert 1–3 Minuten. Dann die Einrichtung:"
-c "  Sprache → Zeitzone → eigene PIN (zweimal) → WLAN (optional) → Anmelden (Mobil)"
+c "  Sprache → Zeitzone → eigene PIN (zweimal) → WLAN (optional) → Anmelden"
 c "Internet gibt es erst mit verbundenem Mullvad (Killswitch). Zum Testen ohne VPN:"
 c "  kernel/tools/noxis-diag.sh fw-aus     (zurueck: fw-an)"
 c "Mobilfunk geht noch nicht. WLAN laeuft ueber WPA2."

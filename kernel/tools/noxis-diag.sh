@@ -400,6 +400,8 @@ shell)
     adb push "$src" "$dst" >/dev/null 2>&1 && { n=$((n + 1)); } || die "push $rel fehlgeschlagen"
     case "$rel" in *.py|*.css|*.conf|*.rules|*.desktop|*/pam.d/*) adb shell "chmod 644 $dst" >/dev/null 2>&1 ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
   done
+  # Die Desktop-Sitzung gibt es nicht mehr
+  adb shell "rm -f $M/usr/share/wayland-sessions/noxis-desktop.desktop" >/dev/null 2>&1
   adb shell "sync" >/dev/null 2>&1
   ok "$n Dateien aktualisiert"
   umount_root
