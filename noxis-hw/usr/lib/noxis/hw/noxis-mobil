@@ -141,7 +141,8 @@ an() {
   # Ist ueberhaupt eine Paketdaten-Anmeldung da? Ohne die wartet
   # 'start network' bis zur Zeitueberschreitung, ohne je zu antworten.
   serv=$(q --nas-get-serving-system)
-  ps=$(echo "$serv" | sed -n 's/.*PS attach state: *.\{0,1\}\([a-z]*\).*/\1/p' | head -n1)
+  # qmicli schreibt die Zeile als  PS: 'attached'
+  ps=$(echo "$serv" | sed -n "s/^[[:space:]]*PS: *'\{0,1\}\([a-z]*\).*/\1/p" | head -n1)
   case "$ps" in
     attached) ok "  Paketdaten angemeldet" ;;
     "")       c "  Paketdaten-Status unbekannt" ;;
@@ -154,6 +155,11 @@ an() {
   # diese Fassung von qmicli das kann.
   TMO=""
   qmicli --help-all 2>/dev/null | grep -q -- '--timeout' && TMO="--timeout=180"
+  [ -n "$TMO" ] || c "  (diese qmicli-Fassung kennt keinen Zeitgeber - 45s pro Versuch)"
+
+  # Auf dem gebundenen Kanal die Adressfamilie setzen. Ohne das antworten
+  # manche Qualcomm-Modems auf 'start network' gar nicht.
+  [ -n "$cid" ] && q --wds-set-ip-family=4 --client-cid="$cid" --client-no-release-cid >/dev/null 2>&1
 
   versuch() {   # $1 Beschreibung, $2 Argument fuer --wds-start-network
     c "  Versuch: $1"
@@ -186,6 +192,9 @@ an() {
     esac
     echo "$start" | grep -qi "timed out" && \
       c "Das Modem hat gar nicht geantwortet - es versucht noch einzubuchen."
+    echo
+    c "Netzzustand im Klartext - das hier brauche ich zum Weitersuchen:"
+    echo "$serv" | sed -n 's/^\t*/  /p' | head -22
     c "Falls 'InvalidOperation' zurueckkommt, passen die Endpunkt-Werte nicht."
     c "Andere ausprobieren, z.B. in $CONF:  EPIFACE=0   oder   RXID=1 TXID=14"
     exit 1
