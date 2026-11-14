@@ -461,12 +461,26 @@ sudo /usr/lib/noxis/hw/noxis-mobil aus
 ```
 
 Ablauf von `an`: ModemManager anhalten (er legt sonst im Kreis neue Modems
-an), Funk einschalten (`--dms-set-operating-mode=online`), auf die
-Netzanmeldung warten, Datenformat auf `raw-ip` stellen – **der Aufruf, an dem
-ModemManager scheitert, hier aber nicht zwingend ist** –, dann
-`--wds-start-network` mit dem APN und die erhaltenen Adressen in `rmnet_ipa0`
-eintragen. Die Vorgabe-Route bekommt Metrik 700, damit WLAN weiter Vorrang
-hat.
+an), Funk einschalten, auf die Netzanmeldung warten, dann die drei Schritte,
+die IPA-basierte Qualcomm-SoCs brauchen und die ModemManager hier nicht
+richtig hinbekommt:
+
+1. **Data Port Mapper** (`--dpm-open-port`) verbindet die
+   Endpunkt-Kennungen der IPA-Hardware mit der Nummer, die WDA und WDS
+   danach benutzen. Fehlt das, antwortet `--wds-start-network` mit
+   `InvalidOperation`.
+2. **Datenformat** auf `raw-ip`, diesmal **mit** `ep-type`/`ep-iface-number`.
+   Ohne diese Angaben lehnt das Modem den Aufruf mit `InvalidArgument` ab –
+   genau der Fehler, an dem ModemManager hängen bleibt.
+3. **Datenkanal binden** (`--wds-bind-mux-data-port`), dann
+   `--wds-start-network` mit demselben Kanal.
+
+Danach kommen die Adressen aus `--wds-get-current-settings` in `rmnet_ipa0`.
+Die Vorgabe-Route bekommt Metrik 700, damit WLAN weiter Vorrang hat.
+
+Die Endpunkt-Werte (`EPTYPE`, `EPIFACE`, `MUX`, `RXID`, `TXID`) stehen oben
+im Skript und lassen sich in `/etc/noxis/mobil.conf` überschreiben, falls
+dieses Gerät eine andere Belegung hat.
 
 Den APN rät das Skript aus der Netzkennung (Vodafone, Telekom, O2) oder
 nimmt die erste Zeile aus `/etc/noxis/apn`; als Argument geht er auch:
