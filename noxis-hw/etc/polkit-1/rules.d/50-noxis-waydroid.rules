@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Noxis Linux – Made by 3rr0r303YT on TikTok
+// https://github.com/Real3rr0r303YT/NoxisLinux
+// "Noxis Android" darf Waydroid einrichten, ohne nach einem Passwort zu fragen.
+// Am Handy gibt es in diesem Dialog oft keine Tastatur, und der Helfer nimmt
+// nur feste Befehle an (pruefen, kv, einrichten, start, stop, weg).
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/lib/noxis/hw/noxis-waydroid" &&
+        subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

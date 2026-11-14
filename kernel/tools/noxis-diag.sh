@@ -408,6 +408,10 @@ shell)
       noxis-hw/usr/lib/noxis/hw/noxis-qmi-pin \
       noxis-hw/usr/lib/noxis/hw/noxis-sim-provision \
       noxis-hw/usr/lib/noxis/hw/noxis-waydroid \
+      noxis-hw/usr/lib/noxis/android/androidcore.py \
+      noxis-hw/usr/bin/noxis-android \
+      noxis-hw/usr/share/applications/noxis-android.desktop \
+      noxis-hw/etc/polkit-1/rules.d/50-noxis-waydroid.rules \
       noxis-hw/usr/lib/systemd/system/noxis-sim-provision.service \
       noxis-hw/usr/lib/noxis/hw/noxis-to-rescue \
       noxis-hw/usr/share/applications/noxis-rescue.desktop \

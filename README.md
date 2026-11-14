@@ -489,25 +489,36 @@ Dort steht, wie weit der erste Versuch kommt, bevor die Schleife beginnt.
 ### Waydroid (Android-Apps)
 
 Der Hersteller-Kernel ist ein Android-GKI-Kernel und bringt `binder` und
-`binderfs` mit – auf Mainline-Geräten ist genau das die Hürde. Einrichten
-übernimmt `noxis-waydroid`:
+`binderfs` mit – auf Mainline-Geräten ist genau das die Hürde. Eingerichtet wird
+es über die App **Android** im Startmenü – kein Terminal nötig:
+
+![Android](docs/img/android.png)
+
+Sie zeigt zuerst die vier Voraussetzungen (Kernel, Paket, Abbild, Weg nach
+draußen) und darunter einen Knopf, der je nach Lage „Android einrichten",
+„Android starten" oder „Android beenden" heißt. Was im Weg steht, steht als
+Hinweis dabei – etwa dass der **Killswitch** den Download blockiert, solange
+Mullvad nicht verbunden ist.
+
+Unten drunter liegt derselbe Helfer, falls du es doch im Terminal willst:
 
 ```bash
-sudo /usr/lib/noxis/hw/noxis-waydroid pruefen      # nachsehen, ändert nichts
-sudo /usr/lib/noxis/hw/noxis-waydroid einrichten   # Abbild holen (~1 GB)
-/usr/lib/noxis/hw/noxis-waydroid start             # ohne sudo!
+/usr/lib/noxis/hw/noxis-waydroid pruefen      # nachsehen, ändert nichts
+sudo /usr/lib/noxis/hw/noxis-waydroid einrichten
+/usr/lib/noxis/hw/noxis-waydroid start        # ohne sudo!
 ```
 
-`pruefen` sagt vorher, woran es scheitern würde: Kernel-Einstellungen aus
-`/proc/config.gz`, Pakete, Abbild, Anzeige – und ob der **Killswitch** den
-Download blockiert. Ohne verbundenes Mullvad kommt `waydroid init` nicht
-nach draußen; dann vorher `noxis-diag.sh fw-aus`.
+Die App fragt beim Einrichten kein Passwort ab: `50-noxis-waydroid.rules`
+erlaubt der angemeldeten Person am Gerät genau diesen Helfer, weil es in
+einem polkit-Dialog am Handy oft keine Tastatur gibt. Der Helfer nimmt nur
+feste Befehle an.
 
 Das Abbild ist VANILLA, also ohne Google-Dienste. Ohne eingerichtete GPU
 trägt das Skript Software-Rendering in `waydroid_base.prop` ein: Android
 läuft, aber langsam. Rückgängig: `noxis-waydroid weg`.
 
-**Auf dem Gerät noch nicht durchlaufen.**
+**Auf dem Gerät noch nicht durchlaufen.** Die Logik dahinter ist getestet
+(`test/test_android.py`), die Oberfläche selbst nicht.
 
 ### Netzdiagnose
 
@@ -796,6 +807,7 @@ python3 test/test_guard.py                           # 17  Noxis Guard: settings
 python3 test/test_locale.py                          # 73  7 languages, MCC → time zone, setup, build prompt
 ./test/test_hw.sh                                    # 27  firmware links, radio bring-up, Bluetooth power, units
 dbus-run-session -- python3 test/test_usblock.py     # 8   USB lock over a real D-Bus
+python3 ./test/test_android.py                       # 16  Android-App: Zustand, Knopf, Hinweise
 python3 ./test/test_qmi_pin.py                        #     QMI: Kartenstatus, PIN, Zuweisung
 sudo ./test/test_firewall.sh                         #     packet test in network namespaces
 ```

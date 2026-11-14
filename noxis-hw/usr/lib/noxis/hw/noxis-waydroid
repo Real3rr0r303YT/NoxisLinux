@@ -129,7 +129,28 @@ weg() {
   ok "Abbild und Einstellungen geloescht"
 }
 
+kv() {  # maschinenlesbar fuer die Oberflaeche: nur Schluessel=Wert
+  k=unbekannt
+  if [ -r /proc/config.gz ]; then
+    if kconf CONFIG_ANDROID_BINDER_IPC && kconf CONFIG_ANDROID_BINDERFS; then k=ok; else k=fehlt; fi
+  elif ls /dev/binder* >/dev/null 2>&1 || grep -q binder /proc/filesystems 2>/dev/null; then
+    k=ok
+  fi
+  echo "kernel=$k"
+  dpkg-query -W -f='${Status}' waydroid 2>/dev/null | grep -q "ok installed" && echo "paket=ok" || echo "paket=fehlt"
+  [ -f /var/lib/waydroid/images/system.img ] && echo "abbild=ok" || echo "abbild=fehlt"
+  if systemctl is-active --quiet noxis-firewall 2>/dev/null \
+     && ! mullvad status 2>/dev/null | grep -qi connected; then
+    echo "netz=blockiert"
+  else
+    echo "netz=ok"
+  fi
+  systemctl is-active --quiet waydroid-container 2>/dev/null && echo "container=an" || echo "container=aus"
+  waydroid status 2>/dev/null | grep -qi "Session.*RUNNING" && echo "sitzung=an" || echo "sitzung=aus"
+}
+
 case "${1:-pruefen}" in
+  kv)         kv ;;
   pruefen)    pruefen ;;
   einrichten) einrichten ;;
   start)      start ;;

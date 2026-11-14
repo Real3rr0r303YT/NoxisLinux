@@ -1,0 +1,162 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+"""Noxis Android – Android-Apps einrichten und starten, ohne Terminal."""
+import subprocess
+import sys
+import threading
+
+sys.path.insert(0, "/usr/lib/noxis/android")
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk  # noqa: E402
+
+import androidcore as a  # noqa: E402
+
+CSS = b"""
+.and-title { font-size: 28px; font-weight: 800; }
+.and-sub { opacity: 0.7; }
+.and-head { font-weight: 700; opacity: 0.8; margin-top: 14px; }
+.and-ok { color: #7CFFB2; } .and-warn { color: #FFB27C; } .and-off { opacity: 0.5; }
+.and-row { padding: 10px 6px; }
+.and-hint { opacity: 0.75; font-size: 12px; }
+.and-log { font-family: monospace; font-size: 11px; opacity: 0.8; }
+.and-credit { opacity: 0.5; font-size: 11px; margin-top: 18px; }
+"""
+
+
+class Android(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Noxis Android",
+                         default_width=420, default_height=820)
+        prov = Gtk.CssProvider()
+        prov.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.state, self.busy = {}, False
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4,
+                           margin_start=16, margin_end=16, margin_top=12, margin_bottom=24)
+        self.set_child(Gtk.ScrolledWindow(child=self.box,
+                                          hscrollbar_policy=Gtk.PolicyType.NEVER))
+        self.render()
+        self.refresh()
+
+    # ------------------------------------------------------------- Werkzeug
+    def clear(self):
+        c = self.box.get_first_child()
+        while c:
+            n = c.get_next_sibling()
+            self.box.remove(c)
+            c = n
+
+    def row(self, title, value, good):
+        b = Gtk.Box(spacing=10, css_classes=["and-row"])
+        b.append(Gtk.Label(label=title, xalign=0, hexpand=True))
+        style = "and-off" if good is None else ("and-ok" if good else "and-warn")
+        mark = "…" if good is None else ("✓" if good else "✗")
+        b.append(Gtk.Label(label=f"{mark} {value}", xalign=1, css_classes=[style]))
+        self.box.append(b)
+
+    # -------------------------------------------------------------- Aufbau
+    def render(self):
+        self.clear()
+        self.box.append(Gtk.Label(label="Android", xalign=0, css_classes=["and-title"]))
+        self.box.append(Gtk.Label(label="Android-Apps in einem Behaelter, ohne Google-Dienste",
+                                  xalign=0, wrap=True, css_classes=["and-sub"]))
+
+        self.box.append(Gtk.Label(label="Voraussetzungen", xalign=0, css_classes=["and-head"]))
+        for title, value, good in a.rows(self.state):
+            self.row(title, value, good)
+
+        for hint in a.blockers(self.state):
+            self.box.append(Gtk.Label(label=hint, xalign=0, wrap=True, css_classes=["and-hint", "and-warn"]))
+
+        self.box.append(Gtk.Box(height_request=12))
+        what = a.action(self.state)
+        text, sub = a.label(self.state)
+        self.btn = Gtk.Button(label=text, css_classes=["suggested-action"], height_request=52)
+        self.btn.set_sensitive(bool(what) and not self.busy)
+        self.btn.connect("clicked", self.on_action, what)
+        self.box.append(self.btn)
+        self.box.append(Gtk.Label(label=sub, xalign=0, wrap=True, css_classes=["and-hint"]))
+
+        self.spin = Gtk.Spinner()
+        self.box.append(self.spin)
+        self.log = Gtk.Label(label="", xalign=0, wrap=True, css_classes=["and-log"])
+        self.box.append(self.log)
+
+        if self.state.get("abbild") == "ok" and not self.busy:
+            rm = Gtk.Button(label="Android entfernen", css_classes=["destructive-action"])
+            rm.connect("clicked", self.on_action, "weg")
+            self.box.append(Gtk.Box(height_request=18))
+            self.box.append(rm)
+
+        self.box.append(Gtk.Label(label="Made by 3rr0r303YT on TikTok", xalign=0,
+                                  css_classes=["and-credit"]))
+
+    # -------------------------------------------------------------- Ablauf
+    def refresh(self):
+        def work():
+            r = subprocess.run([a.HELPER, "kv"], capture_output=True, text=True)
+            GLib.idle_add(self.got_state, a.parse_kv(r.stdout))
+        threading.Thread(target=work, daemon=True).start()
+
+    def got_state(self, state):
+        self.state = state
+        if not self.busy:
+            self.render()
+        return False
+
+    def on_action(self, _btn, what):
+        if not what or self.busy:
+            return
+        if what == "stop":
+            self.run_helper(["stop"], root=False)
+            return
+        if what == "start":
+            self.run_helper(["start"], root=False)
+            return
+        self.run_helper([what], root=a.needs_root(what))
+
+    def run_helper(self, args, root):
+        self.busy = True
+        self.btn.set_sensitive(False)
+        self.spin.start()
+        self.log.set_label("läuft …")
+        cmd = (["pkexec", a.HELPER] if root else [a.HELPER]) + args
+
+        def work():
+            try:
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, bufsize=1)
+                last = []
+                for line in p.stdout:
+                    line = line.rstrip()
+                    if line:
+                        last = (last + [line])[-6:]
+                        GLib.idle_add(self.log.set_label, "\n".join(last))
+                p.wait()
+            except OSError as e:
+                GLib.idle_add(self.log.set_label, str(e))
+            GLib.idle_add(self.done)
+        threading.Thread(target=work, daemon=True).start()
+
+    def done(self):
+        self.busy = False
+        self.spin.stop()
+        self.refresh()
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.noxis.Android")
+
+    def do_activate(self):
+        Android(self).present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

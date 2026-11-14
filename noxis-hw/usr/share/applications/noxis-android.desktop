@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Android
+Name[de]=Android
+Comment=Set up and start Android apps (Waydroid)
+Comment[de]=Android-Apps einrichten und starten (Waydroid)
+Exec=/usr/bin/noxis-android
+Icon=phone-symbolic
+Categories=System;Utility;
+X-Purism-FormFactor=Workstation;Mobile;
