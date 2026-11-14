@@ -1,33 +1,51 @@
-# Noxis – Plymouth script: centred logo, wordmark below, pulsing emblem, PIN prompt (LUKS)
-Window.SetBackgroundTopColor(0.027, 0.027, 0.043);
-Window.SetBackgroundBottomColor(0.020, 0.020, 0.031);
+# Noxis Linux – Plymouth: Zeichen in der Mitte, Tux unten, PIN-Abfrage (LUKS)
+# Entwurf von 3rr0r303YT, Tux aus derselben Vorlage.
+# Alles wird an der Fensterbreite ausgerichtet, damit es auf jedem
+# Bildschirm gleich sitzt. Der Hintergrund ist schwarz wie die Bilder,
+# darum brauchen sie keine Transparenz.
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
 
-logo.image = Image("logo.png");
-logo.sprite = Sprite(logo.image);
-logo.x = Window.GetX() + Window.GetWidth() / 2 - logo.image.GetWidth() / 2;
-logo.y = Window.GetY() + Window.GetHeight() / 2 - logo.image.GetHeight() / 2 - 40;
+W = Window.GetWidth();
+H = Window.GetHeight();
+
+fun place(file, wfrac, img) {
+  img.src = Image(file);
+  w = W * wfrac;
+  img.scaled = img.src.Scale(w, w * img.src.GetHeight() / img.src.GetWidth());
+  img.sprite = Sprite(img.scaled);
+  img.w = w;
+  img.h = w * img.src.GetHeight() / img.src.GetWidth();
+  img.x = Window.GetX() + W / 2 - w / 2;
+  return img;
+}
+
+logo = place("logo.png", 0.357, global.logo);
+logo.y = Window.GetY() + H * 0.458 - logo.h / 2;
 logo.sprite.SetPosition(logo.x, logo.y, 1);
 
-word.image = Image("wordmark.png");
-word.sprite = Sprite(word.image);
-word.sprite.SetPosition(Window.GetX() + Window.GetWidth() / 2 - word.image.GetWidth() / 2,
-                        logo.y + logo.image.GetHeight() + 60, 1);
+tux = place("tux.png", 0.364, global.tux);
+tux.y = Window.GetY() + H * 0.762;
+tux.sprite.SetPosition(tux.x, tux.y, 1);
+
+linux = place("linux.png", 0.354, global.linux);
+linux.sprite.SetPosition(linux.x, Window.GetY() + H * 0.952, 1);
 
 t = 0;
 fun refresh() {
   t++;
-  logo.sprite.SetOpacity(0.75 + 0.25 * Math.Sin(t / 18));
+  logo.sprite.SetOpacity(0.8 + 0.2 * Math.Sin(t / 18));
 }
 Plymouth.SetRefreshFunction(refresh);
 
-# password prompt (e.g. encrypted partition)
+# Abfrage, etwa fuer eine verschluesselte Partition
 fun display_password(prompt, bullets) {
   s = "";
   for (i = 0; i < bullets; i++) s += "● ";
   msg.image = Image.Text(prompt + "\n" + s, 0.95, 0.95, 0.97);
   msg.sprite = Sprite(msg.image);
-  msg.sprite.SetPosition(Window.GetX() + Window.GetWidth() / 2 - msg.image.GetWidth() / 2,
-                         Window.GetY() + Window.GetHeight() * 0.78, 2);
+  msg.sprite.SetPosition(Window.GetX() + W / 2 - msg.image.GetWidth() / 2,
+                         Window.GetY() + H * 0.62, 2);
   msg.sprite.SetOpacity(1);
 }
 Plymouth.SetDisplayPasswordFunction(display_password);

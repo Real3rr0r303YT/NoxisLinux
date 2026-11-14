@@ -781,12 +781,21 @@ brand)
   }
   put noxis-shell/usr/share/plymouth/themes/noxis/logo.png      /usr/share/plymouth/themes/noxis/logo.png
   put noxis-shell/usr/share/plymouth/themes/noxis/wordmark.png  /usr/share/plymouth/themes/noxis/wordmark.png
+  put noxis-shell/usr/share/plymouth/themes/noxis/tux.png       /usr/share/plymouth/themes/noxis/tux.png
+  put noxis-shell/usr/share/plymouth/themes/noxis/linux.png     /usr/share/plymouth/themes/noxis/linux.png
+  put noxis-shell/usr/share/plymouth/themes/noxis/noxis.script  /usr/share/plymouth/themes/noxis/noxis.script
   put noxis-shell/usr/lib/noxis/brand/os-release                /usr/lib/noxis/brand/os-release
   put noxis-shell/usr/lib/noxis/brand/os-release                /usr/lib/os-release
   put noxis-shell/etc/xdg/fastfetch/config.jsonc                /etc/xdg/fastfetch/config.jsonc
   put noxis-shell/usr/share/noxis/fastfetch/logo.txt            /usr/share/noxis/fastfetch/logo.txt
   put noxis-opsec/usr/share/applications/noxis-guard.desktop    /usr/share/applications/noxis-guard.desktop
+  # Plymouth das Theme nennen. plymouth-set-default-theme laesst sich aus der
+  # Recovery nicht ausfuehren (fremde Architektur), die Datei genuegt aber.
   t=$(mktemp)
+  printf '[Daemon]\nTheme=noxis\nShowDelay=0\n' > "$t"
+  mkdirs "$M/etc/plymouth"
+  adb push "$t" "$M/etc/plymouth/plymouthd.conf" >/dev/null 2>&1 && echo "  ok Startbildschirm auf noxis gestellt"
+
   printf 'Noxis Linux 1.0 \\n \\l\n\n' > "$t"; adb push "$t" "$M/etc/issue" >/dev/null 2>&1
   printf 'Noxis Linux 1.0\n' > "$t";          adb push "$t" "$M/etc/issue.net" >/dev/null 2>&1
   rm -f "$t"

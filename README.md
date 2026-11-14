@@ -530,6 +530,19 @@ Fehlermeldung.
 
 ### Eigenes Logo: Noxis Linux ist nicht Noxis OS
 
+Der Startbildschirm folgt dem Entwurf aus Noxis OS: das Noxis-Zeichen in der
+Mitte, unten Tux mit „Powered by Linux", alles auf Schwarz.
+
+![Startbildschirm](docs/img/bootsplash.png)
+
+Das Zeichen ist frisch als Vektor gesetzt und damit scharf; Tux stammt aus
+der Vorlage (einem Bildschirmfoto) und ist deshalb etwas weich – eine
+schärfere Datei lässt sich jederzeit über `tux.png` austauschen. Transparenz
+braucht keines der Bilder, weil der Hintergrund schwarz ist. Die Größen
+richten sich nach der Fensterbreite, das Theme passt also auf jeden
+Bildschirm.
+
+
 Startbildschirm (Plymouth), Systemname (`os-release`, `/etc/issue`) und
 `fastfetch` zeigen Noxis Linux – ohne die Android-Figuren des
 Schwesterprojekts. `fastfetch` ist Teil des Abbilds; Logo und Aufbau liegen
@@ -788,7 +801,7 @@ All traffic – Wi-Fi and mobile data – still leaves only through the Mullvad 
 | Greeter | `/usr/lib/noxis/greeter/noxis-greeter` | cage + GTK4, speaks the greetd protocol with noxis-dm: status icons, clock, logo, PIN pad **reshuffled** on every start/failure, lockout 30 s → max 15 min from the 4th failure, mobile/desktop session with icons, restart/power off |
 | Desktop mode | `/usr/lib/noxis/noxis-dock` | external display detected → switch on, arrange, on-screen keyboard off; unplugged → everything back |
 | Branding | `/usr/share/noxis/branding/*.svg` | logo, wordmark, app icon, portrait/landscape wallpapers |
-| Boot splash | `/usr/share/plymouth/themes/noxis` | Plymouth: Noxis Linux emblem, pulsing, PIN prompt for encryption |
+| Boot splash | `/usr/share/plymouth/themes/noxis` | Plymouth: Noxis-Zeichen mittig, Tux und „Powered by Linux" unten, PIN-Abfrage |
 
 Settings: `/etc/noxis/dm.conf` (VT, greeter command, allowed sessions) · `/etc/noxis/greeter.conf` (user, shuffling, PIN length for auto-submit) · `/etc/noxis/dock.conf` (phone display on/off, position, scale).
 

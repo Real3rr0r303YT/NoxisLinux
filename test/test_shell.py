@@ -266,11 +266,17 @@ for svg in ("noxis-mark.svg", "noxis-mark-mono.svg", "noxis-wordmark.svg", "noxi
     except ET.ParseError as e:
         check(f"{svg} valid SVG", False, e)
 th = os.path.join(PKG, "usr/share/plymouth/themes/noxis")
-check("Plymouth images present", all(os.path.getsize(os.path.join(th, f)) > 1000 for f in ("logo.png", "wordmark.png")))
+check("Plymouth images present",
+      all(os.path.getsize(os.path.join(th, f)) > 1000
+          for f in ("logo.png", "wordmark.png", "tux.png", "linux.png")))
 scr = open(os.path.join(th, "noxis.script")).read()
 check("Plymouth script uses existing images only",
       all(os.path.exists(os.path.join(th, n)) for n in __import__("re").findall(r'Image\("([^"]+)"\)', scr)))
 check("Plymouth script: balanced brackets", scr.count("{") == scr.count("}") and scr.count("(") == scr.count(")"))
+check("Plymouth script: Tux und Linux-Schriftzug kommen vor",
+      'tux.png' in scr and 'linux.png' in scr)
+check("Plymouth script: schwarzer Hintergrund wie im Entwurf",
+      "SetBackgroundTopColor(0, 0, 0)" in scr and "SetBackgroundBottomColor(0, 0, 0)" in scr)
 css = open(os.path.join(GREETER, "style.css")).read()
 src = open(os.path.join(GREETER, "noxis-greeter")).read()
 used = set(__import__("re").findall(r'"(noxis-[a-z-]+)"', src)) - {"noxis-wordmark.svg"}
