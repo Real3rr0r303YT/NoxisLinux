@@ -252,6 +252,21 @@ mv "$d/net.log.new" "$d/net.log"
     echo "--- vulkaninfo (turnip-kgsl, icd=$icd) ---"
     VK_ICD_FILENAMES="$icd" LD_LIBRARY_PATH=/opt/mesa-kgsl/lib:/opt/mesa-kgsl/lib/aarch64-linux-gnu \
       timeout 20 /opt/mesa-kgsl/bin/vulkaninfo --summary 2>&1 | head -60
+    # Stufe 2: GL ueber zink. Erst das macht die Oberflaeche schneller -
+    # Vulkan allein nuetzt ihr nichts.
+    if [ -x /opt/mesa-kgsl/bin/es2_info ]; then
+      echo "--- es2_info (zink auf turnip) ---"
+      VK_ICD_FILENAMES="$icd" \
+      LD_LIBRARY_PATH=/opt/mesa-kgsl/lib:/opt/mesa-kgsl/lib/aarch64-linux-gnu \
+      LIBGL_DRIVERS_PATH=/opt/mesa-kgsl/lib/aarch64-linux-gnu/dri \
+      MESA_LOADER_DRIVER_OVERRIDE=zink GALLIUM_DRIVER=zink \
+        timeout 20 /opt/mesa-kgsl/bin/es2_info 2>&1 | grep -iE "vendor|renderer|version|error|fail" | head -12
+    else
+      echo "--- zink noch nicht gebaut (build-mesa-kgsl.sh zink) ---"
+    fi
+    echo "--- gebaute Treiber ---"
+    ls /opt/mesa-kgsl/lib/aarch64-linux-gnu/dri 2>/dev/null | head -5
+    ls /opt/mesa-kgsl/lib/aarch64-linux-gnu/libgbm* /opt/mesa-kgsl/lib/aarch64-linux-gnu/libEGL* 2>/dev/null | head -4
   else
     echo "kein /opt/mesa-kgsl – erst build-mesa-kgsl.sh und noxis-diag.sh gpu"
   fi
