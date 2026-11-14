@@ -15,6 +15,7 @@ so wie es Android tut. Ohne AID antwortet das Modem fuer Platz 2 mit
 
     noxis-qmi-pin status                    beide Kartenplaetze zeigen
     noxis-qmi-pin <Platz> <Datei mit der PIN>
+    noxis-qmi-pin <Platz> -                 PIN hier eingeben (unsichtbar)
 
 Knoten und Port des UIM-Dienstes werden selbst gesucht (qrtr-lookup);
 NOXIS_QMI_NODE und NOXIS_QMI_PORT setzen sie von Hand.
@@ -24,6 +25,7 @@ wenn die Karte selbst noch alle drei Versuche meldet.
 Rueckgabe: 0 entsperrt, 12 PIN falsch, 3 nichts zu tun, 1 anderer Fehler.
 """
 import ctypes
+import getpass
 import os
 import socket
 import subprocess
@@ -183,8 +185,11 @@ def main(argv):
     if app["pin1_retries"] < 3:
         print("Platz %d: nur noch %d Versuche - sende NICHT automatisch" % (slot, app["pin1_retries"]))
         return 3
-    with open(argv[2], "rb") as f:
-        pin = f.read().strip()
+    if argv[2] == "-":
+        pin = getpass.getpass("PIN fuer Platz %d (wird nicht angezeigt): " % slot).strip().encode()
+    else:
+        with open(argv[2], "rb") as f:
+            pin = f.read().strip()
     if not (4 <= len(pin) <= 8 and pin.isdigit()):
         print("PIN-Datei enthaelt keine 4- bis 8-stellige Zahl")
         return 1
