@@ -395,13 +395,19 @@ touch /usr/lib/clock-epoch
 # Mullvad-Oberflaeche: ohne setuid-Sandbox bricht Electron sofort ab
 # ("chrome-sandbox ... owned by root and has mode 4755")
 [ -f "/opt/Mullvad VPN/chrome-sandbox" ] && { chown 0:0 "/opt/Mullvad VPN/chrome-sandbox"; chmod 4755 "/opt/Mullvad VPN/chrome-sandbox"; } || true
-# Mullvad-Oberflaeche: Electron sucht sonst einen X-Server, Phosh hat nur Wayland
-for f in /usr/share/applications/mullvad-vpn.desktop; do
-  [ -f "\$f" ] || continue
-  mkdir -p /usr/local/share/applications
-  sed -e '/^Exec=/s# %[UuFf]\$##' -e '/^Exec=/s#\$# --ozone-platform=wayland --enable-features=UseOzonePlatform,WaylandWindowDecorations --disable-gpu %U#' "\$f" \
-    > /usr/local/share/applications/mullvad-vpn.desktop
-done
+# Mullvad-Oberflaeche: Chromium trennt den Pfad der setuid-Sandbox an
+# Leerzeichen ("failed to execvp: /opt/Mullvad"). Denselben Ordner unter einem
+# Pfad ohne Leerzeichen einhaengen und von dort starten; dazu die
+# Wayland-Schalter, weil Phosh keinen X-Server fuer Electron bereithaelt.
+if [ -d "/opt/Mullvad VPN" ]; then
+  mkdir -p /opt/mullvad-vpn /usr/local/share/applications
+  grep -q '/opt/mullvad-vpn' /etc/fstab 2>/dev/null || \
+    printf '%s\n' '/opt/Mullvad\\040VPN /opt/mullvad-vpn none bind,nofail 0 0' >> /etc/fstab
+  if [ -f /usr/share/applications/mullvad-vpn.desktop ]; then
+    sed 's#^Exec=.*#Exec=/opt/mullvad-vpn/mullvad-vpn --ozone-platform=wayland --enable-features=UseOzonePlatform,WaylandWindowDecorations --disable-gpu %U#' \
+      /usr/share/applications/mullvad-vpn.desktop > /usr/local/share/applications/mullvad-vpn.desktop
+  fi
+fi
 
 # clean up the image
 apt-get clean

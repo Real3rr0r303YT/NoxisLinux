@@ -337,6 +337,13 @@ Beides waren Dateirechte, beides blieb stumm:
   Das setuid-Bit geht beim Bau des Rootfs verloren, und der Kernel hat keine
   User-Namespaces als Ausweg. `noxis-diag.sh mullvad-gui` setzt die Rechte
   und legt einen Starter mit `--ozone-platform=wayland` ab.
+- **Mullvad, zweiter Fehler:** `LaunchProcess: failed to execvp: /opt/Mullvad`.
+  Chromium haengt die setuid-Sandbox als Wrapper vor den Befehl und trennt
+  den Pfad an Leerzeichen – aus `/opt/Mullvad VPN/chrome-sandbox` wird
+  `/opt/Mullvad`. Sonst faellt das nie auf, weil die Sandbox ueber
+  User-Namespaces laeuft. Abhilfe: derselbe Ordner wird per `bind` in
+  `/etc/fstab` zusaetzlich nach `/opt/mullvad-vpn` eingehaengt und von dort
+  gestartet.
 - **Tor Browser:** das Archiv packt `/opt/tor-browser` mit `drwx------ root`
   aus. Der Starter laeuft als Benutzer, sieht nichts und beendet sich.
   `noxis-diag.sh tor` macht den Ordner lesbar; die beschreibbare Kopie legt
@@ -345,6 +352,29 @@ Beides waren Dateirechte, beides blieb stumm:
 Beide Korrekturen stehen auch in `build-noxis-linux.sh`. Tor braucht
 ausserdem eine Verbindung nach draussen – mit scharfem Killswitch also
 einen verbundenen Mullvad-Tunnel.
+
+### Mobilfunk: ModemManager verwirft das Modem
+
+Das Modem laeuft, und ueber QRTR sind alle Dienste da (`qrtr-lookup`: DMS,
+NAS, UIM, WDS, Voice). ModemManager erkennt es auch – und gibt dann auf:
+
+```
+[device qcom-soc] creating modem with plugin 'qcom-soc' and '1' ports
+couldn't create modem for device 'qcom-soc': Failed to find a net port in the QMI modem
+```
+
+Seine Regeln kennen nur die Treiber `ipa` und `bam-dmux` des
+Mainline-Kernels. Der Hersteller-Kernel legt die Datenschnittstelle als
+`rmnet_ipa0` ohne Treiber und ohne Elterngeraet an; ModemManager filtert sie
+als virtuelles Geraet aus. `78-noxis-modem.rules` ordnet sie ausdruecklich
+dem Geraet `qcom-soc` zu.
+
+**Erwartung, nicht bestaetigt:** damit erscheint das Modem (SIM, Netz, SMS).
+Mobile **Daten** werden voraussichtlich trotzdem scheitern – ModemManager
+prueft beim Verbinden noch einmal auf den Treibernamen `ipa`, und der
+Datenpfad des Hersteller-Kernels wird unter Android von `netmgrd`
+eingerichtet. Gespraeche brauchen ausserdem den Audiopfad ueber den ADSP;
+`pd-mapper` startet noch nicht („no pd maps available").
 
 ### Netzdiagnose
 
@@ -373,8 +403,9 @@ Auf ein bestehendes System: `noxis-diag.sh brand`.
 | WLAN (WPA2) | **geht** – braucht `WCNSS_qcom_cfg.ini`, `regulatory.db`, `sae_enabled=0` |
 | WLAN mit WPA3 (SAE) | geht nicht, im Treiber abgeschaltet |
 | Internet, DNS, Zeitabgleich | geht (Killswitch beachten) |
-| Mullvad-Oberflaeche, Tor Browser | Ursache gefunden und korrigiert, auf dem Geraet noch nicht bestaetigt |
-| Mobilfunk, Telefonie | **geht nicht** – `mmcli`: „No modems were found", `pd-mapper` bleibt im Start haengen |
+| Tor Browser | **geht** |
+| Mullvad-Oberflaeche | zwei Ursachen gefunden und korrigiert, noch nicht bestaetigt |
+| Mobilfunk | Modem laeuft, ModemManager verwarf es; udev-Regel ergaenzt, noch nicht bestaetigt. Daten und Sprache offen |
 | GPU-Beschleunigung | ungetestet, nur auf Wunsch (`noxis-gpu an`) |
 | Bluetooth | ungetestet |
 | USB-Shell vom Rechner | Schnittstelle steht, das Handy antwortet nicht |

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# ModemManager findet das Modem ueber QRTR, verwirft es dann aber:
+#   couldn't create modem for device 'qcom-soc':
+#   Failed to find a net port in the QMI modem
+# Seine Regeln (77-mm-qcom-soc.rules) kennen nur die Treiber "ipa" und
+# "bam-dmux" des Mainline-Kernels. Der Hersteller-Kernel des Nothing Phone (3a)
+# legt die Datenschnittstelle als rmnet_ipa0 ohne Treiber und ohne
+# Elterngeraet an - fuer ModemManager ein "virtuelles" Geraet, das es
+# ausfiltert. Hier wird sie ausdruecklich demselben Geraet zugeordnet.
+ACTION=="add|change|move", SUBSYSTEM=="net", KERNEL=="rmnet_ipa0", \
+  ENV{ID_MM_CANDIDATE}="1", ENV{ID_MM_DEVICE_PROCESS}="1", \
+  ENV{ID_MM_QCOM_SOC}="1", ENV{ID_MM_PHYSDEV_UID}="qcom-soc"

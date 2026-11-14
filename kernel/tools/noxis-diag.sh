@@ -195,7 +195,9 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
       uid=$(id -u "$u")
       wl=$(ls /run/user/$uid/ 2>/dev/null | grep -m1 '^wayland-[0-9]*$')
       echo "  Teststart als $u auf $wl:"
-      su - "$u" -c "XDG_RUNTIME_DIR=/run/user/$uid WAYLAND_DISPLAY=$wl timeout 20 '/opt/Mullvad VPN/mullvad-gui' --ozone-platform=wayland --disable-gpu" 2>&1 | tail -25
+      gui="/opt/Mullvad VPN/mullvad-gui"; [ -x /opt/mullvad-vpn/mullvad-gui ] && gui=/opt/mullvad-vpn/mullvad-gui
+      echo "  Programm: $gui"; grep mullvad /proc/mounts
+      su - "$u" -c "XDG_RUNTIME_DIR=/run/user/$uid WAYLAND_DISPLAY=$wl timeout 20 '$gui' --ozone-platform=wayland --disable-gpu" 2>&1 | tail -25
       echo "  rc=$?"
     else
       echo "  (noch niemand angemeldet - Test in der naechsten Runde)"
@@ -387,6 +389,7 @@ shell)
       noxis-hw/etc/systemd/system/pd-mapper.service.d/90-noxis.conf \
       noxis-hw/usr/lib/udev/rules.d/70-noxis-gpu.rules \
       noxis-hw/usr/lib/udev/rules.d/65-noxis-rmtfs.rules \
+      noxis-hw/usr/lib/udev/rules.d/78-noxis-modem.rules \
       noxis-hw/usr/lib/noxis/hw/noxis-firmware-links \
       noxis-hw/usr/lib/noxis/hw/noxis-radios \
       noxis-hw/usr/lib/noxis/hw/noxis-to-rescue \
@@ -728,32 +731,49 @@ fw-aus|fw-an)
   ;;
 
 mullvad-gui)
-  # Die Mullvad-Oberflaeche ist Electron und sucht ohne Hinweis einen
-  # X-Server. Unter Phosh gibt es nur Wayland, also startet sie nicht.
-  # Ein eigener Starter in /usr/local hat Vorrang und gibt die Schalter mit.
+  # Zwei Fehler hintereinander, beide aus dem Teststart abgelesen:
+  #  1. "chrome-sandbox is owned by root and has mode 4755" - das setuid-Bit
+  #     ging beim Bau des Rootfs verloren.
+  #  2. "LaunchProcess: failed to execvp: /opt/Mullvad" - Chromium haengt die
+  #     setuid-Sandbox als Wrapper vor den Befehl und trennt den Pfad dabei an
+  #     Leerzeichen. Aus "/opt/Mullvad VPN/chrome-sandbox" wird "/opt/Mullvad".
+  #     Sonst faellt das nie auf, weil die Sandbox ueber User-Namespaces
+  #     laeuft - die hat dieser Kernel nicht.
+  # Loesung fuer 2: derselbe Ordner zusaetzlich unter einem Pfad ohne
+  # Leerzeichen einhaengen (bind) und von dort starten. /proc/self/exe zeigt
+  # dann den Pfad ohne Leerzeichen.
   need_recovery; mount_root
-  t=$(mktemp); src=""
+  sb="$M/opt/Mullvad VPN/chrome-sandbox"
+  adb shell "chown 0:0 '$sb' && chmod 4755 '$sb'" 2>&1 | sed '/^$/d;s/^/    /'
+  echo "  Sandbox: $(adb shell "ls -ln '$sb'" 2>/dev/null | tr -d '\r' | cut -c1-24)"
+
+  mkdirs "$M/opt/mullvad-vpn"
+  t=$(mktemp)
+  adb pull "$M/etc/fstab" "$t" >/dev/null 2>&1 || : > "$t"
+  if grep -q '/opt/mullvad-vpn' "$t"; then
+    echo "  ok fstab hat den Eintrag schon"
+  else
+    printf '%s\n' '/opt/Mullvad\040VPN /opt/mullvad-vpn none bind,nofail 0 0' >> "$t"
+    adb push "$t" "$M/etc/fstab" >/dev/null 2>&1 && adb shell "chmod 644 $M/etc/fstab" \
+      && echo "  ok fstab: /opt/Mullvad VPN -> /opt/mullvad-vpn (bind)"
+  fi
+
+  src=""
   for f in mullvad-vpn.desktop mullvad-gui.desktop; do
     adb pull "$M/usr/share/applications/$f" "$t" >/dev/null 2>&1 && [ -s "$t" ] && { src=$f; break; }
   done
   [ -n "$src" ] || { rm -f "$t"; umount_root; die "kein Mullvad-Starter im System - ist die App installiert?"; }
   flags='--ozone-platform=wayland --enable-features=UseOzonePlatform,WaylandWindowDecorations --disable-gpu'
-  sed -i '/^Exec=/s# %[UuFf]$##' "$t"
-  sed -i "/^Exec=/{/--ozone-platform/!s#\$# $flags %U#}" "$t"
+  sed -i "s#^Exec=.*#Exec=/opt/mullvad-vpn/mullvad-vpn $flags %U#" "$t"
   d="$M/usr/local/share/applications"
   mkdirs "$d"
   adb push "$t" "$d/$src" >/dev/null 2>&1 && adb shell "chmod 644 $d/$src" \
-    && echo "  ok Starter: $(grep -m1 '^Exec=' "$t")"
+    && echo "  ok Starter: $(grep -m1 '^Exec=' "$t" | cut -c1-60) …"
   rm -f "$t"
-  # Der Teststart sagt es woertlich: "chrome-sandbox ... is owned by root and
-  # has mode 4755". Das setuid-Bit ging beim Bau des Rootfs verloren, und
-  # Electron bricht dann lieber ab, als ohne Sandbox zu laufen.
-  sb="$M/opt/Mullvad VPN/chrome-sandbox"
-  adb shell "chown 0:0 '$sb' && chmod 4755 '$sb'" 2>&1 | sed '/^$/d;s/^/    /'
-  echo "  Sandbox: $(adb shell "ls -ln '$sb'" 2>/dev/null | tr -d '\r' | cut -c1-24)"
   umount_root
-  ok "Mullvad-Starter fuer Wayland abgelegt, Sandbox-Rechte gesetzt"
+  ok "Mullvad startet jetzt aus /opt/mullvad-vpn (Pfad ohne Leerzeichen)"
   ;;
+
 
 nosae)
   # Die Mitschrift zeigt es schwarz auf weiss: NetworkManager bietet trotz
