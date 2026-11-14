@@ -689,6 +689,17 @@ if [ "${left:-0}" -lt 3 ]; then
 fi
 sim=$(echo "$info" | grep 'primary sim path' | grep -o '/SIM/[0-9]*' | head -n1)
 [ -n "$sim" ] || { echo "kein SIM-Pfad"; exit 0; }
+# ModemManager schickt die PIN immer an Kartenplatz 1 (fest im Quelltext:
+# QMI_UIM_SESSION_TYPE_CARD_SLOT_1). Ist ein anderer Platz aktiv, geht die PIN
+# an die FALSCHE Karte und der Aufruf endet in einer Zeitueberschreitung.
+# Dann nicht senden - sonst verbraucht jeder Start einen Versuch der Karte
+# in Platz 1.
+slot=$(echo "$info" | grep '(active)' | grep -o 'slot [0-9]*' | tr -dc 0-9)
+if [ -n "$slot" ] && [ "$slot" != 1 ]; then
+  echo "aktive SIM steckt in Platz $slot - ModemManager kann nur Platz 1 entsperren. Kein Versuch."
+  echo "Abhilfe: SIM in Platz 1 stecken oder die PIN-Abfrage der SIM abschalten."
+  exit 0
+fi
 out=$(mmcli -i "${sim##*/}" --pin="$(cat "$f")" 2>&1); rc=$?
 echo "Entsperren von $sim: rc=$rc $out"
 if echo "$out" | grep -qiE 'incorrect|IncorrectPin|wrong'; then

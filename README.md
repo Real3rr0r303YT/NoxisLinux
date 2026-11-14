@@ -376,26 +376,36 @@ Datenpfad des Hersteller-Kernels wird unter Android von `netmgrd`
 eingerichtet. Gespraeche brauchen ausserdem den Audiopfad ueber den ADSP;
 `pd-mapper` startet noch nicht („no pd maps available").
 
-### SIM-PIN: der Dialog laeuft in eine Zeitueberschreitung
+### SIM-PIN: Zeitueberschreitung, weil die SIM in Platz 2 steckt
 
-Die PIN-Abfrage der Oberflaeche meldet erst eine polkit-Ablehnung, nach der
-Regel `50-noxis-modem.rules` eine Zeitueberschreitung; in beiden Faellen
-erreicht die PIN die SIM nicht (`unlock retries` bleibt bei 3). Ursache
-noch offen – vermutlich haengt der Dialog an einem Modem-Objekt, das
-ModemManager kurz nach dem Start wieder verwirft (`Modem/0` wird zu
-`Modem/1`).
+`mmcli -i 1 --pin=…` und der PIN-Dialog der Oberflaeche enden beide mit
+`couldn't send PIN code to the SIM: 'Timeout was reached'`, und
+`unlock retries` bleibt bei 3. Die PIN erreicht die Karte nie.
 
-Bis dahin entsperrt das Handy die SIM beim Start selbst:
+Ursache: ModemManager schickt PIN-Befehle fest an Kartenplatz 1
+(`QMI_UIM_SESSION_TYPE_CARD_SLOT_1` in `mm-sim-qmi.c`). Auf diesem Geraet
+ist Platz 2 der aktive:
 
-```bash
-./kernel/tools/noxis-diag.sh simpin       # fragt die PIN am Rechner ab, unsichtbar
-./kernel/tools/noxis-diag.sh simpin-aus   # PIN wieder vom Handy loeschen
+```
+sim slot paths: slot 1: /org/freedesktop/ModemManager1/SIM/0
+                slot 2: /org/freedesktop/ModemManager1/SIM/1 (active)
 ```
 
-Die PIN liegt dann in `/etc/noxis/sim-pin`, lesbar nur fuer root. Der Dienst
-versucht es hoechstens einmal pro Start, nur wenn noch alle drei Versuche
-frei sind, und loescht die PIN, sobald die SIM sie als falsch ablehnt. Das
-Ergebnis steht in `/var/log/noxis/sim.log` (ohne PIN).
+Die PIN geht also an die Karte in Platz 1 – wenn dort eine andere SIM mit
+eigener PIN steckt, kostet das deren Versuche. **Darum nicht wiederholen.**
+
+Abhilfe, bis ModemManager das kann:
+
+- die SIM in **Platz 1** des Kartenhalters stecken, oder
+- die PIN-Abfrage der SIM in einem anderen Handy abschalten.
+
+`noxis-diag.sh simpin` (SIM beim Start entsperren) prueft den Platz und
+sendet nichts, wenn die aktive SIM nicht in Platz 1 steckt. Es versucht es
+hoechstens einmal pro Start, nur bei drei freien Versuchen, und loescht die
+gespeicherte PIN, sobald die Karte sie ablehnt. `simpin-aus` entfernt sie.
+
+Die polkit-Meldung davor war ein eigener, kleinerer Fehler
+(`50-noxis-modem.rules`).
 
 ### Netzdiagnose
 
