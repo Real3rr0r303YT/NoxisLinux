@@ -472,7 +472,13 @@ richtig hinbekommt:
 2. **Datenformat** auf `raw-ip`, diesmal **mit** `ep-type`/`ep-iface-number`.
    Ohne diese Angaben lehnt das Modem den Aufruf mit `InvalidArgument` ab –
    genau der Fehler, an dem ModemManager hängen bleibt.
-3. **Datenkanal binden** (`--wds-bind-mux-data-port`), dann
+3. **Mux-Kanal anlegen.** `rmnet_ipa0` ist nur der physische Treiber; den
+   QMAP-Kopf haengt erst ein rmnet-Netzgeraet darueber an, das unter Android
+   `netmgrd` als `rmnet_data0` erzeugt. `noxis-mobil` legt es selbst an:
+   `ip link add link rmnet_ipa0 name rmnet_data0 type rmnet mux_id 1`.
+   Klappt das, wird im Datenformat zusaetzlich QMAP gesetzt – ohne Mux-Kanal
+   waere QMAP falsch, mit Mux-Kanal ist es Pflicht.
+4. **Datenkanal binden** (`--wds-bind-mux-data-port`), dann
    `--wds-start-network` mit demselben Kanal.
 
 Danach kommen die Adressen aus `--wds-get-current-settings` in `rmnet_ipa0`.
@@ -488,8 +494,44 @@ nimmt die erste Zeile aus `/etc/noxis/apn`; als Argument geht er auch:
 in `PKG_NET`, auf einem bestehenden System:
 `sudo apt install libqmi-utils`).
 
-**Auf dem Gerät noch nicht durchlaufen.** Die Auswertung der qmicli-Ausgaben
-ist gegen echte Beispiele geprüft, der Rest nicht.
+#### Stand 15.11.2026: wo es noch haengt
+
+Auf dem Geraet laufen inzwischen alle Schritte durch – bis auf den letzten.
+Was gesichert ist:
+
+* Das Modem ist **im Netz angemeldet**, und zwar auch fuer Paketdaten
+  (`PS: 'attached'`). Vodafone gibt die Daten also frei; der Fehler liegt
+  nicht beim Netz.
+* Der **IPA-Treiber hat seinen eigenen QMI-Handshake mit dem Modem
+  abgeschlossen** (`QMI_IPA_INIT_MODEM_DRIVER_REQ_V01 response received`).
+  Der Datenpfad steht grundsaetzlich.
+* `--dpm-open-port` wird angenommen, das **Datenformat mit QMAP** wird
+  gesetzt, `rmnet_data0` laesst sich **anlegen**, die **Kanalbindung**
+  liefert eine Kennung.
+
+Nur `--wds-start-network` kommt nicht durch, und zwar reproduzierbar auf
+zwei verschiedene Weisen:
+
+| Aufruf | Antwort |
+| --- | --- |
+| ohne Kanalbindung | sofort `InvalidOperation` (70) |
+| mit Kanalbindung  | gar keine Antwort, Zeitueberschreitung nach 45 s |
+
+Das Muster sagt: die Bindung ist noetig und wird akzeptiert, aber das Modem
+wartet anschliessend auf etwas, das nie kommt. Der einzige Teil der Kette,
+den nichts bestaetigt, sind die **Endpunkt-Nummern** `EPTYPE=embedded`,
+`EPIFACE=1`, `RXID=3`, `TXID=16`. Die sind geraten; `--dpm-open-port` nimmt
+jeden Wert entgegen, ohne ihn zu pruefen. Unter Android holt `netmgrd` sie
+aus der Geraetekonfiguration.
+
+Naechster Schritt ist daher, die echten Werte zu finden, statt weiter zu
+raten – und bis dahin lassen sie sich in `/etc/noxis/mobil.conf` von Hand
+setzen, z. B. `EPIFACE=0` oder `RXID=1 TXID=14`.
+
+Zwei Dinge, die es **nicht** sind, damit sie niemand nochmal probiert: ein
+zu knapper Zeitgeber (auch mit mehr Zeit kommt keine Antwort, und diese
+qmicli-Fassung kennt den Schalter ohnehin nicht) und der APN (ueber ein
+angelegtes Profil verhaelt es sich genauso).
 
 ### Offen: ModemManager findet das Modem nicht (Datenformat)
 
