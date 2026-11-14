@@ -18,7 +18,12 @@
 # auch, mit qmicli.
 set -u
 DEV=qrtr://0
-IF=rmnet_ipa0
+# rmnet_ipa0 ist der physische Treiber. Den QMAP-Kopf, den der Mux-Kanal
+# braucht, haengt erst ein darueber angelegtes rmnet-Netzgeraet an - unter
+# Android heisst es rmnet_data0 und wird von netmgrd erzeugt. Wir legen es
+# selbst an; klappt das nicht, bleibt nur der Weg ohne Mux ueber LOWER.
+LOWER=rmnet_ipa0
+IF=rmnet_data0
 STATE=/run/noxis-mobil
 APNFILE=/etc/noxis/apn
 CONF=/etc/noxis/mobil.conf
@@ -38,6 +43,9 @@ no() { printf '\033[1;31m[fehler]\033[0m %s\n' "$*"; }
 root() { [ "$(id -u)" = 0 ] || { no "bitte mit sudo starten"; exit 1; }; }
 
 q() { qmicli -p -d "$DEV" "$@" 2>&1; }
+
+# Fuer Pruefen, Status und Abbauen: das Netzgeraet nehmen, das es gibt.
+aktiv_if() { [ -e "/sys/class/net/$IF" ] && echo "$IF" || echo "$LOWER"; }
 
 feld() { sed -n "s/.*$1: *'\{0,1\}\([^']*\)'\{0,1\}.*/\1/p" | head -n1; }
 
@@ -61,8 +69,10 @@ pruefen() {
   rc=0
   command -v qmicli >/dev/null 2>&1 && ok "qmicli vorhanden" \
     || { no "qmicli fehlt - installieren:  sudo apt install libqmi-utils"; rc=1; }
-  [ -e "/sys/class/net/$IF" ] && ok "Netzgeraet $IF da" \
-    || { no "$IF fehlt - laeuft das Modem? (noxis-radios)"; rc=1; }
+  [ -e "/sys/class/net/$LOWER" ] && ok "Netzgeraet $LOWER da" \
+    || { no "$LOWER fehlt - laeuft das Modem? (noxis-radios)"; rc=1; }
+  [ -e "/sys/class/net/$IF" ] && ok "Mux-Kanal $IF da" \
+    || c "Mux-Kanal $IF noch nicht angelegt - macht 'an' selbst"
   if systemctl is-active --quiet ModemManager 2>/dev/null; then
     c "ModemManager laeuft - 'an' haelt ihn an, er stoert sonst"
   fi
@@ -127,8 +137,33 @@ an() {
 
   # Jetzt klappt auch das Datenformat - ModemManager scheitert daran, weil
   # es den Endpunkt nicht mitgibt.
-  c "Datenformat auf raw-ip stellen"
-  out=$(q --wda-set-data-format="ep-type=$EPTYPE,ep-iface-number=$EPIFACE,link-layer-protocol=raw-ip")
+  # Mux-Kanal anlegen. Ohne ihn hat das Modem keinen Empfaenger fuer die
+  # Pakete und antwortet auf 'start network' gar nicht mehr.
+  c "Mux-Kanal anlegen ($IF auf $LOWER, mux $MUX)"
+  mux_da=nein
+  if ip link show "$IF" >/dev/null 2>&1; then
+    mux_da=ja; ok "  war schon da"
+  else
+    modprobe rmnet_core >/dev/null 2>&1 || modprobe rmnet >/dev/null 2>&1
+    ip link set "$LOWER" up 2>/dev/null
+    if ip link add link "$LOWER" name "$IF" type rmnet mux_id "$MUX" 2>/dev/null; then
+      mux_da=ja; ok "  angelegt"
+    else
+      c "  geht nicht - dieser Kernel kann kein rmnet-Netzgeraet anlegen"
+      IF="$LOWER"
+    fi
+  fi
+
+  # Mit Mux-Kanal muss QMAP an, sonst traegt niemand den Mux-Kopf ein und
+  # das Modem wartet auf Pakete, die nie in der richtigen Form ankommen.
+  if [ "$mux_da" = ja ]; then
+    c "Datenformat auf raw-ip mit QMAP stellen"
+    fmt="ep-type=$EPTYPE,ep-iface-number=$EPIFACE,link-layer-protocol=raw-ip,ul-protocol=qmap,dl-protocol=qmap,dl-max-datagrams=32,dl-datagram-max-size=31744"
+  else
+    c "Datenformat auf raw-ip stellen"
+    fmt="ep-type=$EPTYPE,ep-iface-number=$EPIFACE,link-layer-protocol=raw-ip"
+  fi
+  out=$(q --wda-set-data-format="$fmt")
   echo "$out" | grep -qi error && c "  abgelehnt - weiter ohne" \
                               || echo "$out" | sed -n 's/^\t*/  /p' | head -3
 
@@ -173,9 +208,9 @@ an() {
 
   c "Verbindung aufbauen${apn:+ (APN $apn)}"
   handle=""
-  versuch "ohne Kanalbindung, IPv4" ohne "${apn:+apn=$apn,}ip-type=4" \
-    || versuch "mit Kanalbindung, IPv4" bind "${apn:+apn=$apn,}ip-type=4" \
-    || versuch "ohne Kanalbindung, IPv4 und IPv6" ohne "${apn:+apn=$apn,}ip-type=10" \
+  versuch "mit Kanalbindung, IPv4" bind "${apn:+apn=$apn,}ip-type=4" \
+    || versuch "ohne Kanalbindung, IPv4" ohne "${apn:+apn=$apn,}ip-type=4" \
+    || versuch "mit Kanalbindung, IPv4 und IPv6" bind "${apn:+apn=$apn,}ip-type=10" \
     || {
       # Manche Modems ignorieren einen mitgegebenen APN und wollen ein
       # hinterlegtes Profil. Also eines anlegen und darueber starten.
@@ -237,12 +272,14 @@ aus() {
     q --wds-stop-network="$handle" --client-cid="$cid" | sed -n 's/^\t*/  /p' | head -2
     rm -f "$STATE"
   fi
-  ip addr flush dev "$IF" 2>/dev/null
-  ip link set "$IF" down 2>/dev/null
+  w=$(aktiv_if)
+  ip addr flush dev "$w" 2>/dev/null
+  ip link set "$w" down 2>/dev/null
   ok "getrennt"
 }
 
 status() {
+  IF=$(aktiv_if)
   c "Schnittstelle"
   ip -br addr show "$IF" 2>/dev/null | sed 's/^/  /' || echo "  $IF gibt es nicht"
   ip route show dev "$IF" 2>/dev/null | sed 's/^/  /'
