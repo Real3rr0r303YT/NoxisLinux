@@ -102,22 +102,28 @@ einrichten() {
 }
 
 start() {
-  [ -f /var/lib/waydroid/images/system.img ] || { no "noch kein Abbild - erst: sudo noxis-waydroid einrichten"; exit 1; }
-  if [ "$(id -u)" = 0 ]; then
-    no "'start' bitte OHNE sudo, als angemeldeter Benutzer"
-    exit 1
+  [ -f /var/lib/waydroid/images/system.img ] || { no "noch kein Abbild - erst einrichten"; exit 1; }
+  [ "$(id -u)" = 0 ] && { no "'start' bitte OHNE sudo, als angemeldeter Benutzer"; exit 1; }
+  [ -n "${WAYLAND_DISPLAY:-}" ] || { no "keine Wayland-Sitzung - bitte am Handy angemeldet starten"; exit 1; }
+  if ! systemctl is-active --quiet waydroid-container; then
+    c "Behaelter ist aus, starte ihn"
+    pkexec /usr/lib/noxis/hw/noxis-waydroid container-an || { no "Behaelter startet nicht"; exit 1; }
   fi
-  systemctl is-active --quiet waydroid-container || { no "waydroid-container laeuft nicht - erst: sudo noxis-waydroid einrichten"; exit 1; }
-  c "Sitzung starten (der erste Start dauert einige Minuten)"
-  waydroid session start >/dev/null 2>&1 &
-  i=0
-  while [ "$i" -lt 60 ]; do
-    waydroid status 2>/dev/null | grep -qi "Session.*RUNNING" && break
-    i=$((i + 1)); sleep 2
-  done
-  waydroid status 2>&1 | sed 's/^/  /'
-  c "Oberflaeche oeffnen"
-  waydroid show-full-ui
+  if waydroid status 2>/dev/null | grep -qi "Session.*RUNNING"; then
+    c "Sitzung laeuft schon, zeige die Oberflaeche"
+    exec waydroid show-full-ui
+  fi
+  # 'first-launch' startet die Sitzung UND oeffnet die Oberflaeche. Die Sitzung
+  # im Hintergrund zu starten und danach show-full-ui zu rufen ging schief:
+  # beendet sich der Helfer, nimmt er die Sitzung mit.
+  c "starte Android - der erste Start dauert einige Minuten"
+  c "Das Fenster erscheint von selbst, wenn Android hochgefahren ist."
+  exec waydroid first-launch
+}
+
+container_an() {
+  root
+  systemctl enable --now waydroid-container
 }
 
 stop() { waydroid session stop 2>/dev/null; [ "$(id -u)" = 0 ] && systemctl stop waydroid-container; ok "angehalten"; }
@@ -152,6 +158,7 @@ kv() {  # maschinenlesbar fuer die Oberflaeche: nur Schluessel=Wert
 case "${1:-pruefen}" in
   kv)         kv ;;
   pruefen)    pruefen ;;
+  container-an) container_an ;;
   einrichten) einrichten ;;
   start)      start ;;
   stop)       stop ;;

@@ -446,6 +446,37 @@ einem anderen Handy abschalten.
 Die polkit-Meldung davor war ein eigener, kleinerer Fehler
 (`50-noxis-modem.rules`).
 
+### Mobile Daten ohne ModemManager
+
+ModemManager kommt mit diesem Modem nicht zurecht (siehe unten). Unter
+Android macht die Arbeit ohnehin nicht er, sondern `netmgrd`: es spricht QMI
+direkt, startet die Datenverbindung und trägt die Adressen in `rmnet_ipa0`
+ein. `noxis-mobil` macht genau das, mit `qmicli`:
+
+```bash
+sudo /usr/lib/noxis/hw/noxis-mobil pruefen   # nachsehen, ändert nichts
+sudo /usr/lib/noxis/hw/noxis-mobil an        # verbinden
+sudo /usr/lib/noxis/hw/noxis-mobil status
+sudo /usr/lib/noxis/hw/noxis-mobil aus
+```
+
+Ablauf von `an`: ModemManager anhalten (er legt sonst im Kreis neue Modems
+an), Funk einschalten (`--dms-set-operating-mode=online`), auf die
+Netzanmeldung warten, Datenformat auf `raw-ip` stellen – **der Aufruf, an dem
+ModemManager scheitert, hier aber nicht zwingend ist** –, dann
+`--wds-start-network` mit dem APN und die erhaltenen Adressen in `rmnet_ipa0`
+eintragen. Die Vorgabe-Route bekommt Metrik 700, damit WLAN weiter Vorrang
+hat.
+
+Den APN rät das Skript aus der Netzkennung (Vodafone, Telekom, O2) oder
+nimmt die erste Zeile aus `/etc/noxis/apn`; als Argument geht er auch:
+`noxis-mobil an web.vodafone.de`. Braucht `libqmi-utils` (seit diesem Stand
+in `PKG_NET`, auf einem bestehenden System:
+`sudo apt install libqmi-utils`).
+
+**Auf dem Gerät noch nicht durchlaufen.** Die Auswertung der qmicli-Ausgaben
+ist gegen echte Beispiele geprüft, der Rest nicht.
+
 ### Offen: ModemManager findet das Modem nicht (Datenformat)
 
 Stand 14.11.2026. Karten entsperrt, Zuweisung gesetzt, Modem laeuft – und

@@ -408,6 +408,7 @@ shell)
       noxis-hw/usr/lib/noxis/hw/noxis-qmi-pin \
       noxis-hw/usr/lib/noxis/hw/noxis-sim-provision \
       noxis-hw/usr/lib/noxis/hw/noxis-waydroid \
+      noxis-hw/usr/lib/noxis/hw/noxis-mobil \
       noxis-hw/usr/lib/noxis/android/androidcore.py \
       noxis-hw/usr/bin/noxis-android \
       noxis-hw/usr/share/applications/noxis-android.desktop \

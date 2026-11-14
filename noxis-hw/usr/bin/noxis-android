@@ -35,7 +35,7 @@ class Android(Gtk.ApplicationWindow):
         prov.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        self.state, self.busy = {}, False
+        self.state, self.busy, self.last_log = {}, False, ""
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4,
                            margin_start=16, margin_end=16, margin_top=12, margin_bottom=24)
         self.set_child(Gtk.ScrolledWindow(child=self.box,
@@ -84,7 +84,8 @@ class Android(Gtk.ApplicationWindow):
 
         self.spin = Gtk.Spinner()
         self.box.append(self.spin)
-        self.log = Gtk.Label(label="", xalign=0, wrap=True, css_classes=["and-log"])
+        self.log = Gtk.Label(label=self.last_log, xalign=0, wrap=True,
+                             selectable=True, css_classes=["and-log"])
         self.box.append(self.log)
 
         if self.state.get("abbild") == "ok" and not self.busy:
@@ -131,17 +132,25 @@ class Android(Gtk.ApplicationWindow):
             try:
                 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      text=True, bufsize=1)
-                last = []
+                lines = []
                 for line in p.stdout:
                     line = line.rstrip()
                     if line:
-                        last = (last + [line])[-6:]
-                        GLib.idle_add(self.log.set_label, "\n".join(last))
-                p.wait()
+                        lines.append(line)
+                        GLib.idle_add(self.show_log, "\n".join(lines[-12:]))
+                rc = p.wait()
+                if rc != 0:
+                    lines.append(f"abgebrochen (Code {rc})")
+                GLib.idle_add(self.show_log, "\n".join(lines[-12:]))
             except OSError as e:
-                GLib.idle_add(self.log.set_label, str(e))
+                GLib.idle_add(self.show_log, str(e))
             GLib.idle_add(self.done)
         threading.Thread(target=work, daemon=True).start()
+
+    def show_log(self, text):
+        self.last_log = text
+        self.log.set_label(text)
+        return False
 
     def done(self):
         self.busy = False

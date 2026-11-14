@@ -1,0 +1,165 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# Mobile Daten ohne ModemManager.
+#
+#   noxis-mobil pruefen    nachsehen, nichts aendern
+#   noxis-mobil an [APN]   Verbindung aufbauen
+#   noxis-mobil aus        Verbindung abbauen
+#   noxis-mobil status     Zustand und Adressen
+#
+# Warum nicht ModemManager: es handelt beim Oeffnen des Anschlusses ein
+# Datenformat aus, das dieses Modem mit 'InvalidArgument' ablehnt; danach
+# bricht die QMI-Verbindung weg und es legt endlos neue Modems an. Unter
+# Android macht diese Arbeit 'netmgrd': es spricht QMI direkt, startet die
+# Datenverbindung und traegt die Adressen in rmnet_ipa0 ein. Genau das hier
+# auch, mit qmicli.
+set -u
+DEV=qrtr://0
+IF=rmnet_ipa0
+STATE=/run/noxis-mobil
+APNFILE=/etc/noxis/apn
+
+c()  { printf '\033[1;36m[mobil]\033[0m %s\n' "$*"; }
+ok() { printf '\033[1;32m[  ok  ]\033[0m %s\n' "$*"; }
+no() { printf '\033[1;31m[fehler]\033[0m %s\n' "$*"; }
+root() { [ "$(id -u)" = 0 ] || { no "bitte mit sudo starten"; exit 1; }; }
+
+q() { qmicli -p -d "$DEV" "$@" 2>&1; }
+
+feld() { sed -n "s/.*$1: *'\{0,1\}\([^']*\)'\{0,1\}.*/\1/p" | head -n1; }
+
+apn_holen() {
+  [ -n "${1:-}" ] && { echo "$1"; return; }
+  [ -s "$APNFILE" ] && { head -n1 "$APNFILE"; return; }
+  # Aus der Netzkennung raten, sonst leer lassen: viele Netze vergeben die
+  # Einstellungen ohnehin selbst, wenn der Name leer bleibt.
+  mccmnc=$(q --nas-get-home-network | feld "MCC")$(q --nas-get-home-network | feld "MNC")
+  case "$mccmnc" in
+    26202|26204|26209) echo "web.vodafone.de" ;;
+    26201|26206)       echo "internet.telekom" ;;
+    26203|26277|26207|26208) echo "internet" ;;
+    *) echo "" ;;
+  esac
+}
+
+pruefen() {
+  rc=0
+  command -v qmicli >/dev/null 2>&1 && ok "qmicli vorhanden" \
+    || { no "qmicli fehlt - installieren:  sudo apt install libqmi-utils"; rc=1; }
+  [ -e "/sys/class/net/$IF" ] && ok "Netzgeraet $IF da" \
+    || { no "$IF fehlt - laeuft das Modem? (noxis-radios)"; rc=1; }
+  if systemctl is-active --quiet ModemManager 2>/dev/null; then
+    c "ModemManager laeuft - 'an' haelt ihn an, er stoert sonst"
+  fi
+  [ "$rc" = 0 ] || return 1
+  c "Modem"
+  q --dms-get-operating-mode | sed -n 's/^.*Mode: /  Betriebsart: /p'
+  q --dms-get-ids           | sed -n "s/.*IMEI: '\([0-9]*\)'.*/  IMEI: vorhanden/p"
+  c "Netz"
+  q --nas-get-serving-system | sed -n 's/^\t*/  /p' | grep -iE "registration|operator|roaming|technolog" | head -6
+  c "Datenformat (hier scheitert ModemManager)"
+  q --wda-get-data-format | sed -n 's/^\t*/  /p' | head -6
+  c "APN"
+  echo "  $(apn_holen "" ) ${APNFILE:+(aenderbar in $APNFILE)}"
+}
+
+warte_netz() {
+  i=0
+  while [ "$i" -lt 30 ]; do
+    s=$(q --nas-get-serving-system)
+    echo "$s" | grep -qi "Registration state: 'registered'" && return 0
+    echo "$s" | grep -qi "Registration state: 'denied'" && { no "Netz verweigert die Anmeldung"; return 1; }
+    i=$((i + 1)); sleep 2
+  done
+  return 1
+}
+
+an() {
+  root
+  command -v qmicli >/dev/null 2>&1 || { no "qmicli fehlt - sudo apt install libqmi-utils"; exit 1; }
+  apn=$(apn_holen "${1:-}")
+
+  if systemctl is-active --quiet ModemManager 2>/dev/null; then
+    c "halte ModemManager an (er legt sonst im Kreis neue Modems an)"
+    systemctl stop ModemManager
+  fi
+
+  c "Funk einschalten"
+  q --dms-set-operating-mode=online | sed -n 's/^/  /p' | head -2
+
+  c "warte auf das Netz"
+  warte_netz || { no "keine Netzanmeldung - Empfang? richtige Karte zugewiesen?"; exit 1; }
+  q --nas-get-serving-system | grep -iE "operator|technolog" | sed -n 's/^\t*/  /p' | head -3
+
+  # Das ist der Aufruf, an dem ModemManager scheitert. Schlaegt er fehl,
+  # machen wir trotzdem weiter: fuers Verbinden ist er nicht zwingend.
+  c "Datenformat auf raw-ip stellen"
+  out=$(q --wda-set-data-format=link-layer-protocol=raw-ip)
+  echo "$out" | grep -qi "error" && c "  abgelehnt - weiter ohne" || echo "$out" | sed -n 's/^\t*/  /p' | head -3
+
+  c "Verbindung aufbauen${apn:+ (APN $apn)}"
+  start=$(q --wds-start-network="${apn:+apn=$apn,}ip-type=4" --client-no-release-cid)
+  echo "$start" | sed -n 's/^\t*/  /p' | head -4
+  handle=$(echo "$start" | feld "Packet data handle")
+  cid=$(echo "$start" | feld "CID")
+  [ -n "$handle" ] || { no "Verbindung nicht zustande gekommen"; exit 1; }
+  mkdir -p "$(dirname "$STATE")"; printf '%s %s\n' "$handle" "$cid" > "$STATE"
+
+  c "Adressen vom Netz holen"
+  s=$(q --wds-get-current-settings --client-cid="$cid" --client-no-release-cid)
+  ip4=$(echo "$s" | feld "IPv4 address")
+  msk=$(echo "$s" | feld "IPv4 subnet mask")
+  gw=$(echo "$s" | feld "IPv4 gateway address")
+  d1=$(echo "$s" | feld "IPv4 primary DNS")
+  d2=$(echo "$s" | feld "IPv4 secondary DNS")
+  mtu=$(echo "$s" | feld "MTU")
+  [ -n "$ip4" ] || { no "keine Adresse erhalten"; exit 1; }
+  pre=$(python3 -c "import ipaddress,sys;print(ipaddress.IPv4Network('0.0.0.0/'+sys.argv[1]).prefixlen)" "$msk" 2>/dev/null || echo 24)
+  echo "  Adresse $ip4/$pre, Gegenstelle $gw, DNS $d1 $d2, MTU ${mtu:-1500}"
+
+  c "Schnittstelle einrichten"
+  ip link set "$IF" down 2>/dev/null
+  ip addr flush dev "$IF" 2>/dev/null
+  [ -n "$mtu" ] && ip link set "$IF" mtu "$mtu" 2>/dev/null
+  ip link set "$IF" up
+  ip addr add "$ip4/$pre" dev "$IF"
+  # Hoehere Metrik als WLAN: solange WLAN steht, laeuft der Verkehr dort.
+  ip route add default via "$gw" dev "$IF" metric 700 2>/dev/null \
+    || ip route replace default via "$gw" dev "$IF" metric 700
+  command -v resolvectl >/dev/null 2>&1 && resolvectl dns "$IF" $d1 $d2 >/dev/null 2>&1
+  ok "verbunden"
+  status
+}
+
+aus() {
+  root
+  if [ -s "$STATE" ]; then
+    read -r handle cid < "$STATE"
+    c "Verbindung abbauen"
+    q --wds-stop-network="$handle" --client-cid="$cid" | sed -n 's/^\t*/  /p' | head -2
+    rm -f "$STATE"
+  fi
+  ip addr flush dev "$IF" 2>/dev/null
+  ip link set "$IF" down 2>/dev/null
+  ok "getrennt"
+}
+
+status() {
+  c "Schnittstelle"
+  ip -br addr show "$IF" 2>/dev/null | sed 's/^/  /' || echo "  $IF gibt es nicht"
+  ip route show dev "$IF" 2>/dev/null | sed 's/^/  /'
+  if [ -s "$STATE" ]; then ok "Verbindung aktiv"; else c "keine Verbindung eingetragen"; fi
+  c "Erreichbarkeit ueber $IF"
+  if ping -c1 -W4 -I "$IF" 9.9.9.9 >/dev/null 2>&1; then ok "ping 9.9.9.9 geht"; else no "ping 9.9.9.9 geht nicht"; fi
+}
+
+case "${1:-pruefen}" in
+  pruefen) pruefen ;;
+  an)      an "${2:-}" ;;
+  aus)     aus ;;
+  status)  status ;;
+  *) sed -n '6,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac
