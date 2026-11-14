@@ -204,6 +204,33 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
 } > "$d/net.log.new" 2>&1
 grep -q "Teststart" "$d/net.log.new" && cp "$d/net.log.new" "$d/net-gui.log"
 mv "$d/net.log.new" "$d/net.log"
+{ echo "--- Dienste ---"
+  for u in ModemManager rmtfs pd-mapper tqftpserv; do echo "  $u: $(systemctl is-active $u 2>&1) / $(systemctl show -p SubState --value $u 2>&1)"; done
+  echo "--- rmtfs (ganzes Journal) ---"; journalctl -b --no-pager -u rmtfs 2>&1 | tail -30
+  echo "--- pd-mapper ---"; systemctl cat pd-mapper 2>&1 | grep -vE '^\s*#|^$' | head -25; journalctl -b --no-pager -u pd-mapper 2>&1 | tail -25
+  echo "--- tqftpserv ---"; journalctl -b --no-pager -u tqftpserv 2>&1 | tail -10
+  echo "--- rmtfs-Speicher ---"; ls -la /dev/qcom_rmtfs* /dev/uio* /sys/class/rmtfs 2>&1
+  for u in /sys/class/uio/uio*; do echo "  $u: name=$(cat $u/name 2>/dev/null) addr=$(cat $u/maps/map0/addr 2>/dev/null) size=$(cat $u/maps/map0/size 2>/dev/null)"; done
+  echo "--- Partitionen fuer rmtfs ---"; ls -la /dev/disk/by-partlabel 2>&1 | grep -iE "modemst|fsg|fsc" 
+  echo "--- QRTR ---"; grep -i qipcrtr /proc/net/protocols 2>&1 || echo "  kein QIPCRTR in /proc/net/protocols"
+  if ! command -v qrtr-lookup >/dev/null 2>&1 && [ ! -e /var/lib/noxis-qrtr-tried ]; then
+    : > /var/lib/noxis-qrtr-tried
+    echo "  qrtr-lookup fehlt - installiere qrtr-tools einmalig"
+    DEBIAN_FRONTEND=noninteractive timeout 120 apt-get install -y -q qrtr-tools 2>&1 | tail -3
+  fi
+  command -v qrtr-lookup >/dev/null 2>&1 && timeout 10 qrtr-lookup 2>&1 | head -70 || echo "  qrtr-lookup nicht vorhanden"
+  echo "--- Netzgeraet des Modems ---"
+  for n in /sys/class/net/rmnet*; do
+    [ -e "$n" ] || continue
+    echo "  ${n##*/}: driver=$(basename "$(readlink -f $n/device/driver 2>/dev/null)" 2>/dev/null) device=$(readlink -f $n/device 2>/dev/null)"
+    udevadm info "$n" 2>&1 | grep -E "ID_MM|DRIVER|SUBSYSTEM|ID_NET_DRIVER" | sed 's/^/    /'
+  done
+  echo "--- wwan/rpmsg ---"; ls /dev/wwan* /dev/rpmsg* /sys/bus/rpmsg/devices /sys/class/wwan 2>&1 | head -30
+  echo "--- MM-Regeln fuer Qualcomm-SoC ---"; grep -vE '^\s*#|^$' /usr/lib/udev/rules.d/77-mm-qcom-soc.rules 2>&1 | head -40
+  echo "--- ModemManager-Journal ---"; journalctl -b --no-pager -u ModemManager 2>&1 | tail -45
+  echo "--- mmcli ---"; mmcli -L 2>&1; mmcli -m any 2>&1 | sed 's/[0-9]\{14,\}/<Nummer>/g' | head -50
+  echo "--- SIM/Modem im dmesg ---"; dmesg | grep -aiE "uim|sim |subsys|sysmon|rmtfs|rfsa|efs|modem.*(crash|fatal|restart)|ssr" | tail -25
+} > "$d/modem.log" 2>&1
 { echo "--- KGSL ---"; ls -la /dev/kgsl* /dev/dma_heap 2>&1
   if [ -d /opt/mesa-kgsl ]; then
     icd=$(ls /opt/mesa-kgsl/share/vulkan/icd.d/freedreno_icd*.json 2>/dev/null | head -n1)
@@ -307,7 +334,7 @@ fetch)
   adb shell "[ -d $M/var/log/noxis ] && echo yes" 2>/dev/null | grep -q yes \
     || { umount_root; die "keine Diagnose gefunden – lief der Dienst? Mindestens 90 Sekunden booten lassen."; }
   mkdir -p "$OUTDIR"
-  for f in when dmesg modules failed running drm system gpu apps journal net net-gui; do
+  for f in when dmesg modules failed running drm system gpu apps journal net net-gui modem; do
     adb pull "$M/var/log/noxis/$f.log" "$OUTDIR/$f.log" >/dev/null 2>&1
   done
   umount_root
@@ -323,6 +350,7 @@ fetch)
     || echo "  (kein net.log - der Sammler ist aelter, neu: noxis-diag.sh install)"
   echo; c "=== Teststart der Mullvad-Oberflaeche ==="
   sed -n '/Teststart/,$p' "$OUTDIR/net-gui.log" 2>/dev/null | head -30
+  echo; c "=== Mobilfunk ==="; cat "$OUTDIR/modem.log" 2>/dev/null || echo "  (kein modem.log)"
   echo; c "=== WLAN/Modem im dmesg ==="
   grep -inE "icnss|wlan|cnss|qmi|rmtfs|mhi|modem|slpi|adsp" "$OUTDIR/dmesg.log" 2>/dev/null | tail -30 \
     || echo "  (nichts)"
