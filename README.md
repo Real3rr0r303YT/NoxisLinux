@@ -401,6 +401,13 @@ ein Dienst entsperrt beim Start – ueber ModemManager, wenn Platz 1 aktiv ist,
 sonst ueber `noxis-qmi-pin` – und startet ModemManager danach neu, damit es
 die aufgehobene Sperre einliest.
 
+Die Platzangabe allein genuegt nicht: ohne die Kennung (AID) der
+USIM-Anwendung antwortet das Modem fuer Platz 2 mit `AccessDenied` (82).
+`noxis-qmi-pin` liest deshalb zuerst den Kartenstatus (`Get Card Status`,
+0x002F) und schickt die PIN mit der AID daraus – so wie Android es tut.
+`noxis-qmi-pin <Knoten> <Port> status` zeigt je Platz, ob die PIN gesperrt
+ist und wie viele Versuche die Karte selbst noch meldet.
+
 Sicherungen: hoechstens ein Versuch pro Start, nur bei drei freien
 Versuchen, die gespeicherte PIN wird geloescht, sobald die Karte sie
 ablehnt, und sie steht in keinem Protokoll. `simpin-aus` entfernt sie.

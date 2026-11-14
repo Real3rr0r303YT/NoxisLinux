@@ -233,6 +233,13 @@ mv "$d/net.log.new" "$d/net.log"
   echo "--- ModemManager-Journal ---"; journalctl -b --no-pager -u ModemManager 2>&1 | tail -45
   echo "--- mmcli ---"; mmcli -L 2>&1; mmcli -m any 2>&1 | grep -v "allowed:" | sed 's/[0-9]\{14,\}/<Nummer>/g' | head -60
   echo "--- SIM ---"; for i in 0 1 2 3 4 5; do mmcli -i $i 2>/dev/null | sed 's/[0-9]\{10,\}/<Nummer>/g'; done | head -30
+  echo "--- Kartenstatus direkt vom Modem ---"
+  if [ -x /usr/lib/noxis/hw/noxis-qmi-pin ]; then
+    set -- $(qrtr-lookup 2>/dev/null | awk '$1==11 {print $4, $5; exit}')
+    [ -n "${2:-}" ] && timeout 30 /usr/lib/noxis/hw/noxis-qmi-pin "$1" "$2" status 2>&1 || echo "  UIM-Dienst nicht gefunden"
+  else
+    echo "  (Helfer fehlt)"
+  fi
   echo "--- polkit zu ModemManager ---"; journalctl -b --no-pager 2>&1 | grep -aiE "polkit.*(modem|denied|not authorized)|ModemManager1.*(Unauthorized|polkit)|phosh.*(sim|pin|modem|wwan)" | tail -15
   echo "--- SIM/Modem im dmesg ---"; dmesg | grep -aiE "uim|sim |subsys|sysmon|rmtfs|rfsa|efs|modem.*(crash|fatal|restart)|ssr" | tail -25
 } > "$d/modem.log" 2>&1
@@ -397,6 +404,7 @@ shell)
       noxis-hw/usr/lib/udev/rules.d/78-noxis-modem.rules \
       noxis-hw/usr/lib/noxis/hw/noxis-firmware-links \
       noxis-hw/usr/lib/noxis/hw/noxis-radios \
+      noxis-hw/usr/lib/noxis/hw/noxis-qmi-pin \
       noxis-hw/usr/lib/noxis/hw/noxis-to-rescue \
       noxis-hw/usr/share/applications/noxis-rescue.desktop \
       noxis-hw/etc/polkit-1/rules.d/50-noxis-rescue.rules \

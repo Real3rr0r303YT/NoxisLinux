@@ -5,15 +5,20 @@
 """SIM-PIN direkt ans Modem schicken, fuer einen bestimmten Kartenplatz.
 
 ModemManager schickt PIN-Befehle fest an Kartenplatz 1
-(QMI_UIM_SESSION_TYPE_CARD_SLOT_1). Steckt die aktive SIM in Platz 2, laeuft
-das Entsperren in eine Zeitueberschreitung. Dieses Programm spricht den
-UIM-Dienst des Modems selbst an (QMI ueber QRTR) und nennt den richtigen
-Platz.
+(QMI_UIM_SESSION_TYPE_CARD_SLOT_1) und ohne Anwendungskennung. Steckt die
+aktive SIM in Platz 2, laeuft das Entsperren in eine Zeitueberschreitung.
+Dieses Programm spricht den UIM-Dienst des Modems selbst an (QMI ueber QRTR):
+es liest zuerst den Kartenstatus, nimmt daraus die Kennung (AID) der
+USIM-Anwendung im gewuenschten Platz und schickt die PIN genau dorthin --
+so wie es Android tut. Ohne AID antwortet das Modem fuer Platz 2 mit
+"AccessDenied" (82).
 
     noxis-qmi-pin <Knoten> <Port> <Platz> <Datei mit der PIN>
+    noxis-qmi-pin <Knoten> <Port> status          nur den Kartenstatus zeigen
 
-Die PIN wird aus der Datei gelesen und nie ausgegeben.
-Rueckgabe: 0 entsperrt, 12 PIN falsch, 1 anderer Fehler.
+Die PIN wird aus der Datei gelesen und nie ausgegeben. Gesendet wird nur,
+wenn die Karte selbst noch alle drei Versuche meldet.
+Rueckgabe: 0 entsperrt, 12 PIN falsch, 3 nichts zu tun, 1 anderer Fehler.
 """
 import ctypes
 import socket
@@ -22,78 +27,153 @@ import sys
 
 AF_QIPCRTR = 42
 UIM_VERIFY_PIN = 0x0026
+UIM_GET_CARD_STATUS = 0x002F
 SESSION_CARD_SLOT = {1: 6, 2: 7}      # QMI_UIM_SESSION_TYPE_CARD_SLOT_n
 ERR_INCORRECT_PIN = 12
+APP_TYPES = {0: "unbekannt", 1: "sim", 2: "usim", 3: "ruim", 4: "csim", 5: "isim"}
+PIN_STATES = {0: "nicht eingerichtet", 1: "gesperrt", 2: "entsperrt",
+              3: "abgeschaltet", 4: "blockiert (PUK)", 5: "dauerhaft blockiert"}
+CARD_STATES = {0: "keine Karte", 1: "Karte da", 2: "Fehler"}
 
 
-def build_request(slot, pin, txn=1):
-    session = struct.pack("<BHBB", 0x01, 2, SESSION_CARD_SLOT[slot], 0)   # ohne AID
+def header(msg, body, txn=1):
+    return struct.pack("<BHHH", 0, txn, msg, len(body)) + body
+
+
+def build_verify(slot, aid, pin, txn=2):
+    session = bytes([SESSION_CARD_SLOT[slot], len(aid)]) + aid
     info = bytes([1, len(pin)]) + pin                                      # PIN1
-    body = session + struct.pack("<BH", 0x02, len(info)) + info
-    return struct.pack("<BHHH", 0, txn, UIM_VERIFY_PIN, len(body)) + body
+    body = (struct.pack("<BH", 0x01, len(session)) + session +
+            struct.pack("<BH", 0x02, len(info)) + info)
+    return header(UIM_VERIFY_PIN, body, txn)
 
 
-def parse_response(data):
-    """-> (ist_antwort, ergebnis, fehler, versuche) aus einer QMI-Nachricht."""
+def tlvs(data, want_msg):
+    """-> {typ: wert} einer Antwort auf want_msg, sonst None."""
     if len(data) < 7:
-        return False, None, None, None
+        return None
     kind, _txn, msg, length = struct.unpack_from("<BHHH", data)
-    if kind != 2 or msg != UIM_VERIFY_PIN:
-        return False, None, None, None
-    result = error = retries = None
-    pos, end = 7, min(len(data), 7 + length)
+    if kind != 2 or msg != want_msg:
+        return None
+    out, pos, end = {}, 7, min(len(data), 7 + length)
     while pos + 3 <= end:
         t, n = struct.unpack_from("<BH", data, pos)
-        val = data[pos + 3:pos + 3 + n]
-        if t == 0x02 and n >= 4:
-            result, error = struct.unpack_from("<HH", val)
-        elif t == 0x10 and n >= 1:
-            retries = val[0]
+        out[t] = data[pos + 3:pos + 3 + n]
         pos += 3 + n
-    return True, result, error, retries
+    return out
+
+
+def result_of(t):
+    if 0x02 in t and len(t[0x02]) >= 4:
+        return struct.unpack_from("<HH", t[0x02])
+    return None, None
+
+
+def parse_card_status(v):
+    """TLV 0x10 von 'Get Card Status' -> Liste der Plaetze mit ihren Anwendungen."""
+    pos = 8                                    # vier Index-Felder zu je 16 Bit
+    cards = []
+    ncards = v[pos]; pos += 1
+    for _ in range(ncards):
+        state, _upin, _upin_r, _upuk_r, err = v[pos:pos + 5]; pos += 5
+        napps = v[pos]; pos += 1
+        apps = []
+        for _ in range(napps):
+            atype, astate = v[pos], v[pos + 1]; pos += 6       # + 4 Personalisierungsfelder
+            alen = v[pos]; pos += 1
+            aid = bytes(v[pos:pos + alen]); pos += alen
+            _univ, p1s, p1r, puk1r = v[pos:pos + 4]; pos += 7  # + PIN2-Felder
+            apps.append({"type": atype, "state": astate, "aid": aid,
+                         "pin1_state": p1s, "pin1_retries": p1r, "puk1_retries": puk1r})
+        cards.append({"state": state, "error": err, "apps": apps})
+    return cards
+
+
+def show(cards):
+    for i, c in enumerate(cards, 1):
+        print("Platz %d: %s" % (i, CARD_STATES.get(c["state"], c["state"])))
+        for a in c["apps"]:
+            print("    %-5s PIN1 %s, Versuche PIN %d / PUK %d"
+                  % (APP_TYPES.get(a["type"], a["type"]),
+                     PIN_STATES.get(a["pin1_state"], a["pin1_state"]),
+                     a["pin1_retries"], a["puk1_retries"]))
+
+
+class Uim:
+    def __init__(self, node, port):
+        self.sock = socket.socket(AF_QIPCRTR, socket.SOCK_DGRAM)
+        self.sock.settimeout(20)
+        # Nicht jedes Python ist mit AF_QIPCRTR gebaut; darum ueber die libc
+        # mit einer von Hand gepackten struct sockaddr_qrtr senden.
+        self.addr = struct.pack("<HxxII", AF_QIPCRTR, node, port)
+        self.libc = ctypes.CDLL(None, use_errno=True)
+
+    def call(self, msg_bytes, msg_id):
+        n = self.libc.sendto(self.sock.fileno(), msg_bytes, len(msg_bytes), 0, self.addr, len(self.addr))
+        if n != len(msg_bytes):
+            raise OSError("Senden fehlgeschlagen: errno %d" % ctypes.get_errno())
+        while True:
+            t = tlvs(self.sock.recv(8192), msg_id)
+            if t is not None:
+                return t
 
 
 def main(argv):
-    if len(argv) != 5:
+    if len(argv) not in (4, 5):
         print(__doc__)
         return 1
-    node, port, slot = int(argv[1]), int(argv[2]), int(argv[3])
-    if slot not in SESSION_CARD_SLOT:
-        print("nur Platz 1 oder 2")
+    node, port = int(argv[1]), int(argv[2])
+    try:
+        uim = Uim(node, port)
+        t = uim.call(header(UIM_GET_CARD_STATUS, b""), UIM_GET_CARD_STATUS)
+    except (OSError, socket.timeout) as e:
+        print("Modem nicht erreichbar: %s" % e)
         return 1
+    res, err = result_of(t)
+    if res != 0 or 0x10 not in t:
+        print("Kartenstatus nicht lesbar: Ergebnis=%s Fehler=%s" % (res, err))
+        return 1
+    try:
+        cards = parse_card_status(t[0x10])
+    except (IndexError, ValueError):
+        print("Kartenstatus hat ein unerwartetes Format - sende nichts")
+        return 1
+    show(cards)
+    if argv[3] == "status":
+        return 0
+
+    slot = int(argv[3])
+    if slot not in SESSION_CARD_SLOT or slot > len(cards):
+        print("Platz %d gibt es nicht" % slot)
+        return 1
+    app = next((a for a in cards[slot - 1]["apps"] if a["type"] == 2), None) \
+        or next((a for a in cards[slot - 1]["apps"] if a["type"] == 1), None)
+    if app is None:
+        print("Platz %d: keine SIM-Anwendung gefunden - sende nichts" % slot)
+        return 1
+    if app["pin1_state"] != 1:
+        print("Platz %d: PIN1 ist '%s' - nichts zu entsperren"
+              % (slot, PIN_STATES.get(app["pin1_state"], app["pin1_state"])))
+        return 3
+    if app["pin1_retries"] < 3:
+        print("Platz %d: nur noch %d Versuche - sende NICHT automatisch" % (slot, app["pin1_retries"]))
+        return 3
     with open(argv[4], "rb") as f:
         pin = f.read().strip()
     if not (4 <= len(pin) <= 8 and pin.isdigit()):
         print("PIN-Datei enthaelt keine 4- bis 8-stellige Zahl")
         return 1
-    # Nicht jedes Python ist mit AF_QIPCRTR gebaut. Der Socket laesst sich
-    # trotzdem ueber die Familiennummer oeffnen; gesendet wird dann ueber die
-    # libc mit einer von Hand gepackten sockaddr_qrtr.
     try:
-        s = socket.socket(AF_QIPCRTR, socket.SOCK_DGRAM)
-    except OSError as e:
-        print("QRTR-Socket nicht moeglich: %s" % e)
+        t = uim.call(build_verify(slot, app["aid"], pin), UIM_VERIFY_PIN)
+    except (OSError, socket.timeout) as e:
+        print("keine Antwort auf die PIN: %s" % e)
         return 1
-    s.settimeout(20)
-    msg = build_request(slot, pin)
-    addr = struct.pack("<HxxII", AF_QIPCRTR, node, port)      # struct sockaddr_qrtr
-    libc = ctypes.CDLL(None, use_errno=True)
-    if libc.sendto(s.fileno(), msg, len(msg), 0, addr, len(addr)) != len(msg):
-        print("Senden fehlgeschlagen: errno %d" % ctypes.get_errno())
-        return 1
-    try:
-        while True:
-            data = s.recv(4096)
-            ok, result, error, retries = parse_response(data)
-            if ok:
-                break
-    except socket.timeout:
-        print("keine Antwort vom Modem")
-        return 1
-    print("Platz %d: Ergebnis=%s Fehler=%s verbleibende Versuche=%s" % (slot, result, error, retries))
-    if result == 0:
+    res, err = result_of(t)
+    left = t[0x10][0] if 0x10 in t and t[0x10] else None
+    print("Platz %d: Ergebnis=%s Fehler=%s verbleibende Versuche=%s" % (slot, res, err, left))
+    if res == 0:
         return 0
-    return ERR_INCORRECT_PIN if error == ERR_INCORRECT_PIN else 1
+    return ERR_INCORRECT_PIN if err == ERR_INCORRECT_PIN else 1
 
 
 if __name__ == "__main__":
