@@ -8,7 +8,9 @@
 #   ./noxis-diag.sh fetch     Diagnose nach einem Noxis-Boot abholen
 #   ./noxis-diag.sh remove    Haken wieder entfernen
 #   ./noxis-diag.sh shell     noxis-shell und noxis-opsec aus dem Repo ins
-#                             installierte Rootfs kopieren (ohne Neubau)
+#                             installierte Rootfs kopieren (ohne Neubau).
+#                             Mit zweitem Wort nur passende Dateien, z. B.
+#                             "shell mobil" nur noxis-mobil.
 #   ./noxis-diag.sh gpu       Mesa mit Turnip-KGSL nach /opt/mesa-kgsl (experimentell)
 #   ./noxis-diag.sh seatd     seatd.service aktivieren und die Benutzer in die
 #                             Gruppe _seatd aufnehmen
@@ -377,6 +379,9 @@ shell)
   # dauert eine halbe Stunde; fuer eine geaenderte Python-Datei oder eine
   # Konfigurationsdatei ist das unverhaeltnismaessig.
   need_recovery; mount_root
+  # Mit einem zweiten Wort nur passende Dateien uebertragen:
+  #   noxis-diag.sh shell mobil   -> nur noxis-mobil
+  muster="${2:-}"
   n=0; fehler=0
   for rel in \
       noxis-shell/usr/lib/noxis/dm/noxis-dm \
@@ -419,6 +424,9 @@ shell)
       noxis-hw/etc/polkit-1/rules.d/50-noxis-rescue.rules \
       noxis-hw/etc/polkit-1/rules.d/50-noxis-modem.rules
   do
+    if [ -n "$muster" ]; then
+      case "$rel" in *"$muster"*) ;; *) continue ;; esac
+    fi
     src="$REPO/$rel"
     [ -f "$src" ] || continue
     dst="$M/${rel#*/}"
@@ -441,14 +449,16 @@ shell)
     fi
     case "$rel" in *.py|*.css|*.conf|*.rules|*.desktop|*/pam.d/*) adb shell "chmod 644 $dst" >/dev/null 2>&1 ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
   done
-  # Die Desktop-Sitzung gibt es nicht mehr
-  adb shell "rm -f $M/usr/share/wayland-sessions/noxis-desktop.desktop" >/dev/null 2>&1
-  adb shell "ln -sf /usr/lib/systemd/system/noxis-sim-provision.service $M/etc/systemd/system/multi-user.target.wants/noxis-sim-provision.service" >/dev/null 2>&1
+  if [ -z "$muster" ]; then
+    # Die Desktop-Sitzung gibt es nicht mehr
+    adb shell "rm -f $M/usr/share/wayland-sessions/noxis-desktop.desktop" >/dev/null 2>&1
+    adb shell "ln -sf /usr/lib/systemd/system/noxis-sim-provision.service $M/etc/systemd/system/multi-user.target.wants/noxis-sim-provision.service" >/dev/null 2>&1
+  fi
   adb shell "sync" >/dev/null 2>&1
   if [ "$fehler" -gt 0 ]; then
     c "$fehler Datei(en) nicht uebertragen - nochmal laufen lassen hilft meist"
   fi
-  [ "$n" -gt 0 ] || die "keine einzige Datei uebertragen - haengt das Kabel?"
+  [ "$n" -gt 0 ] || die "keine Datei uebertragen${muster:+ - passt \"$muster\" auf eine Datei?}"
   ok "$n Dateien aktualisiert"
   umount_root
   ;;
