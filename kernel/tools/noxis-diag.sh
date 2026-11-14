@@ -424,12 +424,19 @@ shell)
     dst="$M/${rel#*/}"
     # mkdirs statt 'mkdir -p': das Recovery legt keine Zwischenebenen an.
     mkdirs "$(dirname "$dst")" >/dev/null 2>&1
-    if adb push "$src" "$dst" >/dev/null 2>&1 || adb push "$src" "$dst" >/dev/null 2>&1; then
+    err=$(adb push "$src" "$dst" 2>&1) || err=$(adb push "$src" "$dst" 2>&1)
+    if [ -e "$src" ] && adb shell "[ -s $dst ] && echo da" 2>/dev/null | grep -q da; then
       n=$((n + 1))
     else
-      # Eine einzelne Datei soll nicht den ganzen Lauf kippen.
-      c "  uebersprungen: $rel"
       fehler=$((fehler + 1))
+      c "  uebersprungen: $rel"
+      if [ "$fehler" -le 2 ]; then      # beim ersten Mal zeigen, woran es liegt
+        echo "$err" | sed '/^$/d;s/^/      /' | head -4
+        echo "      Ziel: $dst"
+        adb shell "ls -ld $(dirname "$dst")" 2>&1 | sed 's/^/      /' | head -2
+        adb shell "touch $dst.probe && echo schreibbar || echo NICHT schreibbar" 2>&1 | sed 's/^/      /' | head -2
+        adb shell "rm -f $dst.probe" >/dev/null 2>&1
+      fi
       continue
     fi
     case "$rel" in *.py|*.css|*.conf|*.rules|*.desktop|*/pam.d/*) adb shell "chmod 644 $dst" >/dev/null 2>&1 ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
