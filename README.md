@@ -376,6 +376,27 @@ Datenpfad des Hersteller-Kernels wird unter Android von `netmgrd`
 eingerichtet. Gespraeche brauchen ausserdem den Audiopfad ueber den ADSP;
 `pd-mapper` startet noch nicht („no pd maps available").
 
+### SIM-PIN: der Dialog laeuft in eine Zeitueberschreitung
+
+Die PIN-Abfrage der Oberflaeche meldet erst eine polkit-Ablehnung, nach der
+Regel `50-noxis-modem.rules` eine Zeitueberschreitung; in beiden Faellen
+erreicht die PIN die SIM nicht (`unlock retries` bleibt bei 3). Ursache
+noch offen – vermutlich haengt der Dialog an einem Modem-Objekt, das
+ModemManager kurz nach dem Start wieder verwirft (`Modem/0` wird zu
+`Modem/1`).
+
+Bis dahin entsperrt das Handy die SIM beim Start selbst:
+
+```bash
+./kernel/tools/noxis-diag.sh simpin       # fragt die PIN am Rechner ab, unsichtbar
+./kernel/tools/noxis-diag.sh simpin-aus   # PIN wieder vom Handy loeschen
+```
+
+Die PIN liegt dann in `/etc/noxis/sim-pin`, lesbar nur fuer root. Der Dienst
+versucht es hoechstens einmal pro Start, nur wenn noch alle drei Versuche
+frei sind, und loescht die PIN, sobald die SIM sie als falsch ablehnt. Das
+Ergebnis steht in `/var/log/noxis/sim.log` (ohne PIN).
+
 ### Netzdiagnose
 
 `noxis-diag.sh install` richtet einen Dienst ein, der alle 20 Sekunden einen

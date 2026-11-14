@@ -28,6 +28,7 @@
 #                             vendorfw angelegte Verzeichnis entfernen
 #   ./noxis-diag.sh macperm   echte statt zufaelliger MAC (Test bei
 #                             auth_no_resp_received); zurueck mit macrand
+#   ./noxis-diag.sh simpin   SIM beim Start automatisch entsperren (simpin-aus = wieder aus)
 #   ./noxis-diag.sh tor      Tor Browser lesbar machen (startete stumm nicht)
 #   ./noxis-diag.sh brand    Startlogo, Systemname, fastfetch-Logo: Noxis Linux
 #   ./noxis-diag.sh uhr      Uhr des Handys auf die Zeit des Rechners stellen
@@ -338,7 +339,7 @@ fetch)
   adb shell "[ -d $M/var/log/noxis ] && echo yes" 2>/dev/null | grep -q yes \
     || { umount_root; die "keine Diagnose gefunden – lief der Dienst? Mindestens 90 Sekunden booten lassen."; }
   mkdir -p "$OUTDIR"
-  for f in when dmesg modules failed running drm system gpu apps journal net net-gui modem; do
+  for f in when dmesg modules failed running drm system gpu apps journal net net-gui modem sim; do
     adb pull "$M/var/log/noxis/$f.log" "$OUTDIR/$f.log" >/dev/null 2>&1
   done
   umount_root
@@ -355,6 +356,7 @@ fetch)
   echo; c "=== Teststart der Mullvad-Oberflaeche ==="
   sed -n '/Teststart/,$p' "$OUTDIR/net-gui.log" 2>/dev/null | head -30
   echo; c "=== Mobilfunk ==="; cat "$OUTDIR/modem.log" 2>/dev/null || echo "  (kein modem.log)"
+  echo; c "=== SIM entsperren ==="; tail -25 "$OUTDIR/sim.log" 2>/dev/null || echo "  (kein Versuch protokolliert)"
   echo; c "=== WLAN/Modem im dmesg ==="
   grep -inE "icnss|wlan|cnss|qmi|rmtfs|mhi|modem|slpi|adsp" "$OUTDIR/dmesg.log" 2>/dev/null | tail -30 \
     || echo "  (nichts)"
@@ -626,6 +628,113 @@ osk)
   adb shell "ls -la $M/usr/share/dbus-1/services/"
   ok "Tastatur per DBus startbar – wirkt beim naechsten Start"
   umount_root
+  ;;
+
+simpin)
+  # Der PIN-Dialog der Oberflaeche laeuft in eine Zeitueberschreitung, die PIN
+  # erreicht die SIM nie. Bis das behoben ist, entsperrt das Handy die SIM
+  # beim Start selbst.
+  #
+  # Die PIN wird hier am Rechner abgefragt (unsichtbar), nicht angezeigt, nicht
+  # protokolliert und liegt auf dem Handy in /etc/noxis/sim-pin, lesbar nur
+  # fuer root. Wer das Handy hat UND root wird, kann sie lesen - das ist der
+  # Preis. Entfernen: noxis-diag.sh simpin-aus
+  #
+  # Sicherungen im Dienst: er versucht es hoechstens einmal pro Start, nur
+  # wenn noch alle 3 Versuche frei sind, und loescht die PIN bei "falsch".
+  printf 'SIM-PIN (wird nicht angezeigt): '
+  IFS= read -rs pin; echo
+  case "$pin" in ''|*[!0-9]*) die "eine SIM-PIN besteht nur aus Ziffern" ;; esac
+  [ "${#pin}" -ge 4 ] && [ "${#pin}" -le 8 ] || die "eine SIM-PIN hat 4 bis 8 Ziffern"
+  need_recovery; mount_root
+  old=$(umask); umask 077
+  t=$(mktemp); printf '%s' "$pin" > "$t"; pin=""
+  umask "$old"
+  mkdirs "$M/etc/noxis"
+  adb push "$t" "$M/etc/noxis/sim-pin" >/dev/null 2>&1 \
+    && adb shell "chown 0:0 $M/etc/noxis/sim-pin; chmod 600 $M/etc/noxis/sim-pin" \
+    && echo "  ok PIN abgelegt ($(adb shell "ls -ln $M/etc/noxis/sim-pin" | tr -d '\r' | cut -c1-14))"
+  command -v shred >/dev/null 2>&1 && shred -u "$t" 2>/dev/null || rm -f "$t"
+
+  t=$(mktemp)
+  cat > "$t" <<'EOS'
+#!/bin/sh
+# Noxis Linux – Made by 3rr0r303YT on TikTok – GPL-3.0-or-later
+# SIM beim Start entsperren. Die PIN erscheint in keiner Ausgabe.
+f=/etc/noxis/sim-pin
+[ -s "$f" ] || exit 0
+mkdir -p /var/log/noxis
+exec >> /var/log/noxis/sim.log 2>&1
+echo "=== $(date) ==="
+# Warten, bis ein Modem da ist und bleibt. ModemManager legt es direkt nach
+# dem Start mehrmals neu an; erst wenn dieselbe Nummer zweimal hintereinander
+# gesehen wurde, ist es das endgueltige.
+i=0; last=""; info=""; m=""
+while [ "$i" -lt 40 ]; do
+  m=$(mmcli -L 2>/dev/null | grep -o '/Modem/[0-9]*' | head -n1)
+  if [ -n "$m" ] && [ "$m" = "$last" ]; then
+    info=$(mmcli -m "${m##*/}" 2>/dev/null)
+    echo "$info" | grep -q 'lock: sim-pin *$' && break
+    if echo "$info" | grep -qE 'state: .*(registered|enabled|connected|searching|disabled)'; then
+      echo "SIM ist nicht gesperrt - nichts zu tun"; exit 0
+    fi
+  fi
+  last=$m; i=$((i + 1)); sleep 3
+done
+echo "$info" | grep -q 'lock: sim-pin *$' || { echo "kein gesperrtes Modem gefunden (Modem: ${m:-keins})"; exit 0; }
+left=$(echo "$info" | grep -o 'sim-pin ([0-9]*)' | head -n1 | tr -dc 0-9)
+echo "Modem $m, verbleibende Versuche: ${left:-?}"
+if [ "${left:-0}" -lt 3 ]; then
+  echo "weniger als 3 Versuche frei - entsperre NICHT automatisch"; exit 0
+fi
+sim=$(echo "$info" | grep 'primary sim path' | grep -o '/SIM/[0-9]*' | head -n1)
+[ -n "$sim" ] || { echo "kein SIM-Pfad"; exit 0; }
+out=$(mmcli -i "${sim##*/}" --pin="$(cat "$f")" 2>&1); rc=$?
+echo "Entsperren von $sim: rc=$rc $out"
+if echo "$out" | grep -qiE 'incorrect|IncorrectPin|wrong'; then
+  rm -f "$f"; echo "PIN war FALSCH - gespeicherte PIN geloescht, kein weiterer Versuch"
+  exit 0
+fi
+sleep 10
+m=$(mmcli -L 2>/dev/null | grep -o '/Modem/[0-9]*' | head -n1)
+mmcli -m "${m##*/}" -e 2>&1 | head -n2
+sleep 20
+echo "--- Stand danach ---"
+mmcli -m "${m##*/}" 2>&1 | grep -iE 'state|lock|retries|operator|signal|access tech|registration' | sed 's/[0-9]\{10,\}/<Nummer>/g'
+EOS
+  mkdirs "$M/usr/local/sbin"
+  adb push "$t" "$M/usr/local/sbin/noxis-sim-unlock" >/dev/null 2>&1 \
+    && adb shell "chmod 755 $M/usr/local/sbin/noxis-sim-unlock" && echo "  ok Dienstprogramm"
+  cat > "$t" <<'UNIT'
+[Unit]
+Description=Noxis: SIM beim Start entsperren
+After=ModemManager.service
+Wants=ModemManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/noxis-sim-unlock
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  mkdirs "$M/etc/systemd/system/multi-user.target.wants"
+  adb push "$t" "$M/etc/systemd/system/noxis-sim-unlock.service" >/dev/null 2>&1
+  adb shell "ln -sf /etc/systemd/system/noxis-sim-unlock.service $M/etc/systemd/system/multi-user.target.wants/noxis-sim-unlock.service" >/dev/null 2>&1
+  adb shell "[ -e $M/etc/systemd/system/multi-user.target.wants/noxis-sim-unlock.service ] && echo yes" | grep -q yes \
+    && echo "  ok Dienst eingeschaltet"
+  rm -f "$t"
+  umount_root
+  ok "SIM wird ab dem naechsten Start automatisch entsperrt"
+  c "Ergebnis ansehen: noxis-diag.sh fetch (Abschnitt 'SIM entsperren')"
+  ;;
+
+simpin-aus)
+  need_recovery; mount_root
+  adb shell "rm -f $M/etc/noxis/sim-pin $M/etc/systemd/system/multi-user.target.wants/noxis-sim-unlock.service" >/dev/null 2>&1
+  umount_root
+  ok "gespeicherte SIM-PIN geloescht, automatisches Entsperren aus"
   ;;
 
 tor)
