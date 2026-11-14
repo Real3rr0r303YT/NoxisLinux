@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Noxis Linux – Made by 3rr0r303YT on TikTok
+// https://github.com/Real3rr0r303YT/NoxisLinux
+//
+// SIM entsperren, Netz waehlen, SMS und Anrufe ohne Passwortabfrage fuer die
+// Person am Geraet. ModemManager erlaubt das von sich aus nur einer "aktiven"
+// Sitzung. Mit dem eigenen Anmeldebildschirm (noxis-dm) und seatd stuft polkit
+// die Sitzung nicht immer so ein -- der PIN-Dialog der SIM scheitert dann mit
+// einer polkit-Meldung, und die PIN erreicht die SIM gar nicht.
+//
+// Firmware-Aktionen (org.freedesktop.ModemManager1.Firmware) bleiben draussen.
+polkit.addRule(function (action, subject) {
+    var ok = [
+        "org.freedesktop.ModemManager1.Device.Control",
+        "org.freedesktop.ModemManager1.Contacts",
+        "org.freedesktop.ModemManager1.Messaging",
+        "org.freedesktop.ModemManager1.Voice",
+        "org.freedesktop.ModemManager1.Location",
+        "org.freedesktop.ModemManager1.USSD",
+        "org.freedesktop.ModemManager1.Time"
+    ];
+    if (ok.indexOf(action.id) >= 0 &&
+        (subject.isInGroup("netdev") || subject.isInGroup("sudo"))) {
+        return polkit.Result.YES;
+    }
+});
