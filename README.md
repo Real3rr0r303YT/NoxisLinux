@@ -27,7 +27,7 @@
 
 - 🐉 **Kali Linux tools built in** – nmap, aircrack-ng, wifite, hcxdumptool, bettercap, Wireshark, hydra, john, hashcat, sqlmap, gobuster, ffuf and more from Debian
 - 🐉 **Full Kali on demand** – `noxis-kali` starts a real Kali Linux container (Metasploit, `kali-linux-headless`), sharing the Noxis firewall and VPN
-- 🤖 **Waydroid** – vorgesehen, aber **noch nicht enthalten**: Debian trixie hat kein `waydroid`-Paket (`has no installation candidate`), dafür bräuchte es Waydroids eigene Paketquelle. Sinnvoll wird es ohnehin erst mit laufender GPU
+- 🤖 **Waydroid** – Android-Apps im Container. Der Kernel von Nothing bringt `binder` schon mit, das ist sonst die größte Hürde; eingerichtet wird es mit `noxis-waydroid`. Ohne eingerichtete GPU rendert Android in Software, also langsam
 - `NOXIS_PENTEST=0` builds without the pentest tools
 - 🔌 **Shell vom PC über USB** – `noxis-diag.sh usbnet` + `noxis-shell.sh`, statt Befehle auf der Bildschirmtastatur abzutippen
 - 📶 **WLAN-Bring-up** – `noxis-diag.sh wlan` legt `WCNSS_qcom_cfg.ini` und die Board-Daten nach, ohne das Rootfs neu zu bauen
@@ -485,6 +485,29 @@ sudo journalctl -b -u ModemManager --no-pager | head -60
 ```
 
 Dort steht, wie weit der erste Versuch kommt, bevor die Schleife beginnt.
+
+### Waydroid (Android-Apps)
+
+Der Hersteller-Kernel ist ein Android-GKI-Kernel und bringt `binder` und
+`binderfs` mit – auf Mainline-Geräten ist genau das die Hürde. Einrichten
+übernimmt `noxis-waydroid`:
+
+```bash
+sudo /usr/lib/noxis/hw/noxis-waydroid pruefen      # nachsehen, ändert nichts
+sudo /usr/lib/noxis/hw/noxis-waydroid einrichten   # Abbild holen (~1 GB)
+/usr/lib/noxis/hw/noxis-waydroid start             # ohne sudo!
+```
+
+`pruefen` sagt vorher, woran es scheitern würde: Kernel-Einstellungen aus
+`/proc/config.gz`, Pakete, Abbild, Anzeige – und ob der **Killswitch** den
+Download blockiert. Ohne verbundenes Mullvad kommt `waydroid init` nicht
+nach draußen; dann vorher `noxis-diag.sh fw-aus`.
+
+Das Abbild ist VANILLA, also ohne Google-Dienste. Ohne eingerichtete GPU
+trägt das Skript Software-Rendering in `waydroid_base.prop` ein: Android
+läuft, aber langsam. Rückgängig: `noxis-waydroid weg`.
+
+**Auf dem Gerät noch nicht durchlaufen.**
 
 ### Netzdiagnose
 

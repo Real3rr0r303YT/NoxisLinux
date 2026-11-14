@@ -187,6 +187,8 @@ systemctl list-units --type=service --state=running --no-pager --no-legend > "$d
   echo "--- Modem ---"
   systemctl is-active ModemManager rmtfs pd-mapper tqftpserv 2>&1 | tr '\n' ' '; echo
   mmcli -L 2>&1; mmcli -m any 2>&1 | sed 's/[0-9]\{14,\}/<Nummer>/g' | head -45
+  echo "--- Waydroid ---"
+  [ -x /usr/lib/noxis/hw/noxis-waydroid ] && timeout 30 /usr/lib/noxis/hw/noxis-waydroid pruefen 2>&1 | sed 's/^/  /' || echo "  (Helfer fehlt)"
   echo "--- Mullvad-Oberflaeche ---"
   ls -d /opt/Mullvad* 2>&1; ls -ln "/opt/Mullvad VPN/chrome-sandbox" 2>&1; ls /usr/share/applications /usr/local/share/applications 2>/dev/null | grep -i mullvad
   if [ ! -e /run/noxis-guitest ] && [ -x "/opt/Mullvad VPN/mullvad-gui" ]; then
@@ -405,6 +407,7 @@ shell)
       noxis-hw/usr/lib/noxis/hw/noxis-radios \
       noxis-hw/usr/lib/noxis/hw/noxis-qmi-pin \
       noxis-hw/usr/lib/noxis/hw/noxis-sim-provision \
+      noxis-hw/usr/lib/noxis/hw/noxis-waydroid \
       noxis-hw/usr/lib/systemd/system/noxis-sim-provision.service \
       noxis-hw/usr/lib/noxis/hw/noxis-to-rescue \
       noxis-hw/usr/share/applications/noxis-rescue.desktop \
