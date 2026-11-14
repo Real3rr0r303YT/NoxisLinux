@@ -132,12 +132,6 @@ an() {
   echo "$out" | grep -qi error && c "  abgelehnt - weiter ohne" \
                               || echo "$out" | sed -n 's/^\t*/  /p' | head -3
 
-  c "Datenkanal binden (mux $MUX)"
-  bind=$(q --wds-bind-mux-data-port="mux-id=$MUX,ep-type=$EPTYPE,ep-iface-number=$EPIFACE" --client-no-release-cid)
-  cid=$(echo "$bind" | feld "CID")
-  if [ -n "$cid" ]; then ok "  gebunden, Kanal $cid"
-  else c "  $(echo "$bind" | grep -i error | head -1)"; fi
-
   # Ist ueberhaupt eine Paketdaten-Anmeldung da? Ohne die wartet
   # 'start network' bis zur Zeitueberschreitung, ohne je zu antworten.
   serv=$(q --nas-get-serving-system)
@@ -149,21 +143,28 @@ an() {
     *)        c "  Paketdaten NICHT angemeldet ($ps) - das Netz laesst noch keine Daten zu" ;;
   esac
 
-  # qmicli gibt 'start network' nur 45 Sekunden. Das reicht fuer die erste
-  # Einbuchung oft nicht, und dann sieht man die Fehlermeldung des Modems
-  # gar nicht, sondern nur 'Transaction timed out'. Mehr Zeit geben, wenn
-  # diese Fassung von qmicli das kann.
+  # qmicli gibt 'start network' nur 45 Sekunden, und diese Fassung kennt
+  # keinen Schalter dafuer. Laeuft die Zeit ab, sieht man nicht die
+  # Meldung des Modems, sondern nur 'Transaction timed out'.
   TMO=""
   qmicli --help-all 2>/dev/null | grep -q -- '--timeout' && TMO="--timeout=180"
-  [ -n "$TMO" ] || c "  (diese qmicli-Fassung kennt keinen Zeitgeber - 45s pro Versuch)"
+  [ -n "$TMO" ] || c "  (qmicli ohne Zeitgeber - 45s je Versuch)"
 
-  # Auf dem gebundenen Kanal die Adressfamilie setzen. Ohne das antworten
-  # manche Qualcomm-Modems auf 'start network' gar nicht.
-  [ -n "$cid" ] && q --wds-set-ip-family=4 --client-cid="$cid" --client-no-release-cid >/dev/null 2>&1
-
-  versuch() {   # $1 Beschreibung, $2 Argument fuer --wds-start-network
+  # rmnet_ipa0 ist der aeltere IPA-Netztreiber: eine Verbindung, keine
+  # Mux-Kanaele. Die Kanalbindung gehoert zum neueren rmnet_data0-Modell
+  # und kann WDS in einen Zustand bringen, in dem es nicht mehr antwortet.
+  # Also erst ohne, dann mit.
+  cid=""
+  versuch() {   # $1 Beschreibung, $2 bind|ohne, $3 Argument fuer start-network
     c "  Versuch: $1"
-    start=$(q $TMO --wds-start-network="$2" ${cid:+--client-cid=$cid} --client-no-release-cid)
+    cid=""
+    if [ "$2" = bind ]; then
+      bind=$(q --wds-bind-mux-data-port="mux-id=$MUX,ep-type=$EPTYPE,ep-iface-number=$EPIFACE" --client-no-release-cid)
+      cid=$(echo "$bind" | feld "CID")
+      [ -n "$cid" ] || { echo "$bind" | grep -i error | sed 's/^/    /' | head -1; return 1; }
+      q --wds-set-ip-family=4 --client-cid="$cid" --client-no-release-cid >/dev/null 2>&1
+    fi
+    start=$(q $TMO --wds-start-network="$3" ${cid:+--client-cid=$cid} --client-no-release-cid)
     handle=$(echo "$start" | feld "Packet data handle")
     [ -n "$handle" ] && { ok "    verbunden"; return 0; }
     echo "$start" | grep -iE "error|timed out|call end reason" | sed -n 's/^\t*/    /p' | head -3
@@ -172,14 +173,15 @@ an() {
 
   c "Verbindung aufbauen${apn:+ (APN $apn)}"
   handle=""
-  versuch "IPv4" "${apn:+apn=$apn,}ip-type=4" \
-    || versuch "IPv4 und IPv6" "${apn:+apn=$apn,}ip-type=10" \
+  versuch "ohne Kanalbindung, IPv4" ohne "${apn:+apn=$apn,}ip-type=4" \
+    || versuch "mit Kanalbindung, IPv4" bind "${apn:+apn=$apn,}ip-type=4" \
+    || versuch "ohne Kanalbindung, IPv4 und IPv6" ohne "${apn:+apn=$apn,}ip-type=10" \
     || {
       # Manche Modems ignorieren einen mitgegebenen APN und wollen ein
       # hinterlegtes Profil. Also eines anlegen und darueber starten.
       if [ -n "$apn" ]; then
         prof=$(q --wds-create-profile="3gpp,name=noxis,apn=$apn,pdp-type=ipv4" | feld "Profile index")
-        [ -n "$prof" ] && versuch "Profil $prof" "profile-index=$prof,ip-type=4"
+        [ -n "$prof" ] && versuch "Profil $prof" ohne "profile-index=$prof,ip-type=4"
       fi
     }
 
