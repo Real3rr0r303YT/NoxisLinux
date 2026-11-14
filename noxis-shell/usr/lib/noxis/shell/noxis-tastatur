@@ -1,0 +1,124 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+#
+# Bildschirmtastatur groesser machen.
+#
+#   noxis-tastatur stand          aktuelle Groesse zeigen
+#   noxis-tastatur groesse 1.45   Tasten um diesen Faktor hoeher
+#   noxis-tastatur normal         Auslieferungszustand
+#
+# Warum skalieren statt eigenes Layout: squeekboard legt Tastengroessen in
+# "outlines" ab und rechnet das Layout dann auf die Bildschirmbreite hoch.
+# Die Hoehe folgt also direkt aus diesen Werten. Ein selbst geschriebenes
+# Layout muesste jede Taste, jede Ansicht und jedes Sonderzeichen neu
+# auffuehren - und bei einem Tippfehler fehlen Umlaute. Die vorhandenen
+# Dateien zu strecken wirkt dagegen auf jedes Layout zugleich, auch auf das
+# Terminal-Layout, und laesst sich zurueckdrehen.
+set -u
+# Ueber die Umgebung umlenkbar, damit die Tests nicht ins echte System
+# schreiben muessen.
+DIR=${NOXIS_KB_DIR:-/usr/share/squeekboard/keyboards}
+SICHER=${NOXIS_KB_SICHER:-/var/lib/noxis/squeekboard-orig}
+MERK=${NOXIS_KB_MERK:-/var/lib/noxis/tastatur-faktor}
+
+c()  { printf '\033[1;36m[tastatur]\033[0m %s\n' "$*"; }
+ok() { printf '\033[1;32m[  ok  ]\033[0m %s\n' "$*"; }
+no() { printf '\033[1;31m[fehler]\033[0m %s\n' "$*"; }
+root() { [ "${NOXIS_KB_DIR:-}" ] && return 0
+         [ "$(id -u)" = 0 ] || { no "bitte mit sudo starten"; exit 1; }; }
+
+[ -d "$DIR" ] || { no "$DIR fehlt - ist squeekboard installiert?"; exit 1; }
+
+# Einmalig die Originale wegsichern. Ab dann wird immer aus dieser Kopie
+# gerechnet, nie aus einer schon gestreckten Datei - sonst schaukelt sich
+# der Faktor bei jedem Aufruf auf.
+sichern() {
+  [ -d "$SICHER" ] && return 0
+  mkdir -p "$SICHER" || return 1
+  (cd "$DIR" && find . -name '*.yaml' -exec cp --parents {} "$SICHER/" \;) || return 1
+  ok "Originale gesichert in $SICHER"
+}
+
+faktor_jetzt() { [ -r "$MERK" ] && cat "$MERK" || echo "1.0"; }
+
+# squeekboard liest die Layouts beim Start. Beenden reicht: phosh startet es
+# ueber DBus neu, sobald wieder ein Eingabefeld angetippt wird.
+neustart() {
+  if pkill -x squeekboard 2>/dev/null; then
+    ok "Tastatur neu gestartet - beim naechsten Antippen ist sie da"
+  else
+    c "Tastatur laeuft gerade nicht - wirkt beim naechsten Aufklappen"
+  fi
+}
+
+strecken() {
+  f="$1"
+  awk -v f="$f" '
+    {
+      out = ""
+      while (match($0, /height:[ \t]*[0-9]+(\.[0-9]+)?/)) {
+        out = out substr($0, 1, RSTART - 1)
+        m = substr($0, RSTART, RLENGTH)
+        sub(/height:[ \t]*/, "", m)
+        out = out sprintf("height: %.2f", (m + 0) * f)
+        $0 = substr($0, RSTART + RLENGTH)
+      }
+      print out $0
+    }' "$2" > "$3"
+}
+
+case "${1:-stand}" in
+  stand)
+    echo "  Layout-Ordner: $DIR"
+    echo "  Faktor:        $(faktor_jetzt)"
+    if [ -d "$SICHER" ]; then echo "  Originale:     gesichert"; else echo "  Originale:     noch nicht angefasst"; fi
+    n=$(find "$DIR" -name '*.yaml' | wc -l)
+    echo "  Layouts:       $n"
+    ;;
+
+  groesse)
+    root
+    f="${2:-1.45}"
+    # Nur Zahlen zwischen 0.8 und 2.5 - darueber passt die Tastatur nicht
+    # mehr auf den Bildschirm und verdeckt das Eingabefeld.
+    case "$f" in
+      *[!0-9.]*|"") no "Faktor muss eine Zahl sein, z.B. 1.45"; exit 1 ;;
+    esac
+    if ! awk -v f="$f" 'BEGIN { exit !(f >= 0.8 && f <= 2.5) }'; then
+      no "Faktor muss zwischen 0.8 und 2.5 liegen"; exit 1
+    fi
+    sichern || { no "Sichern fehlgeschlagen"; exit 1; }
+    n=0
+    for src in $(find "$SICHER" -name '*.yaml'); do
+      rel="${src#$SICHER/}"
+      ziel="$DIR/$rel"
+      mkdir -p "$(dirname "$ziel")"
+      tmp="$ziel.noxis-neu"
+      if strecken "$f" "$src" "$tmp" && [ -s "$tmp" ]; then
+        mv "$tmp" "$ziel"; n=$((n + 1))
+      else
+        rm -f "$tmp"; c "uebersprungen: $rel"
+      fi
+    done
+    mkdir -p "$(dirname "$MERK")"; printf '%s\n' "$f" > "$MERK"
+    ok "$n Layouts auf Faktor $f gestreckt"
+    neustart
+    ;;
+
+  normal)
+    root
+    [ -d "$SICHER" ] || { c "nichts geaendert - es gibt nichts zurueckzudrehen"; exit 0; }
+    (cd "$SICHER" && find . -name '*.yaml' -exec cp --parents {} "$DIR/" \;) \
+      || { no "Zuruecklegen fehlgeschlagen"; exit 1; }
+    printf '1.0\n' > "$MERK"
+    ok "Auslieferungszustand wiederhergestellt"
+    neustart
+    ;;
+
+  *)
+    sed -n '6,10p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1
+    ;;
+esac

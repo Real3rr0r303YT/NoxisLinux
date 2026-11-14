@@ -1,0 +1,167 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+"""Noxis Tastatur – Bildschirmtastatur groesser machen, ohne Terminal."""
+import subprocess
+import threading
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk  # noqa: E402
+
+WERKZEUG = "/usr/lib/noxis/shell/noxis-tastatur"
+
+# Faktor, Name, Erklaerung in einem Satz.
+STUFEN = [
+    (1.0,  "Normal",     "So wie Debian es ausliefert"),
+    (1.25, "Groesser",   "Ein gutes Stueck hoeher"),
+    (1.45, "Gross",      "Etwa wie Gboard auf diesem Bildschirm"),
+    (1.7,  "Sehr gross", "Fuer dicke Finger und Dunkelheit"),
+]
+
+CSS = b"""
+.tb-title { font-size: 28px; font-weight: 800; }
+.tb-sub { opacity: 0.7; }
+.tb-name { font-weight: 700; }
+.tb-hint { opacity: 0.7; font-size: 12px; }
+.tb-jetzt { color: #7CFFB2; font-weight: 700; }
+.tb-credit { opacity: 0.5; font-size: 11px; margin-top: 18px; }
+"""
+
+
+def faktor_lesen():
+    """Aktuellen Faktor aus 'stand' holen. Bei Zweifel 1.0."""
+    try:
+        aus = subprocess.run([WERKZEUG, "stand"], capture_output=True,
+                             text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 1.0
+    for zeile in aus.splitlines():
+        if "Faktor:" in zeile:
+            try:
+                return float(zeile.split(":", 1)[1].strip())
+            except ValueError:
+                return 1.0
+    return 1.0
+
+
+def saeubern(text):
+    """Farbcodes des Werkzeugs entfernen - die gehoeren ins Terminal."""
+    for code in ("\033[1;36m", "\033[1;32m", "\033[1;31m", "\033[0m"):
+        text = text.replace(code, "")
+    return text
+
+
+class Tastatur(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Noxis Tastatur",
+                         default_width=420, default_height=720)
+        prov = Gtk.CssProvider()
+        prov.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.busy = False
+        self.knoepfe = []
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                      margin_start=16, margin_end=16, margin_top=14,
+                      margin_bottom=24)
+        self.set_child(box)
+
+        t = Gtk.Label(label="Tastatur", xalign=0)
+        t.add_css_class("tb-title")
+        box.append(t)
+        s = Gtk.Label(label="Wie gross soll die Bildschirmtastatur sein?",
+                      xalign=0, wrap=True)
+        s.add_css_class("tb-sub")
+        box.append(s)
+
+        self.stand = Gtk.Label(xalign=0)
+        self.stand.add_css_class("tb-jetzt")
+        self.stand.set_margin_top(10)
+        box.append(self.stand)
+
+        for faktor, name, erklaerung in STUFEN:
+            b = Gtk.Button()
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                            margin_top=8, margin_bottom=8,
+                            margin_start=6, margin_end=6)
+            n = Gtk.Label(label=name, xalign=0)
+            n.add_css_class("tb-name")
+            e = Gtk.Label(label=erklaerung, xalign=0, wrap=True)
+            e.add_css_class("tb-hint")
+            inner.append(n)
+            inner.append(e)
+            b.set_child(inner)
+            b.connect("clicked", self.gewaehlt, faktor)
+            box.append(b)
+            self.knoepfe.append((faktor, b))
+
+        self.meldung = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        self.meldung.add_css_class("tb-hint")
+        self.meldung.set_margin_top(12)
+        box.append(self.meldung)
+
+        hinweis = Gtk.Label(
+            label="Die neue Groesse gilt, sobald du das naechste Mal ein "
+                  "Eingabefeld antippst.",
+            xalign=0, wrap=True)
+        hinweis.add_css_class("tb-hint")
+        box.append(hinweis)
+
+        c = Gtk.Label(label="Made by 3rr0r303YT on TikTok", xalign=0)
+        c.add_css_class("tb-credit")
+        box.append(c)
+
+        self.auffrischen()
+
+    def auffrischen(self):
+        f = faktor_lesen()
+        self.stand.set_text("Eingestellt: Faktor %g" % f)
+        for faktor, b in self.knoepfe:
+            # Die eingestellte Stufe braucht keinen zweiten Klick.
+            b.set_sensitive(not self.busy and abs(faktor - f) > 0.01)
+
+    def gewaehlt(self, _knopf, faktor):
+        if self.busy:
+            return
+        self.busy = True
+        self.meldung.set_text("Wird eingestellt …")
+        for _f, b in self.knoepfe:
+            b.set_sensitive(False)
+        threading.Thread(target=self._arbeiten, args=(faktor,),
+                         daemon=True).start()
+
+    def _arbeiten(self, faktor):
+        if abs(faktor - 1.0) < 0.01:
+            befehl = ["pkexec", WERKZEUG, "normal"]
+        else:
+            befehl = ["pkexec", WERKZEUG, "groesse", "%g" % faktor]
+        try:
+            p = subprocess.run(befehl, capture_output=True, text=True,
+                               timeout=120)
+            text = saeubern(p.stdout + p.stderr).strip() or "fertig"
+            gut = p.returncode == 0
+        except subprocess.TimeoutExpired:
+            text, gut = "hat zu lange gedauert", False
+        except OSError as e:
+            text, gut = str(e), False
+        GLib.idle_add(self._fertig, "\n".join(text.splitlines()[-3:]), gut)
+
+    def _fertig(self, text, gut):
+        self.busy = False
+        self.meldung.set_text(text if gut else "Hat nicht geklappt:\n" + text)
+        self.auffrischen()
+        return False
+
+
+def main():
+    app = Gtk.Application(application_id="de.noxis.Tastatur")
+    app.connect("activate", lambda a: Tastatur(a).present())
+    app.run(None)
+
+
+if __name__ == "__main__":
+    main()

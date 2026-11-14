@@ -446,6 +446,31 @@ einem anderen Handy abschalten.
 Die polkit-Meldung davor war ein eigener, kleinerer Fehler
 (`50-noxis-modem.rules`).
 
+### Tastatur groesser machen
+
+Die Bildschirmtastatur von Phosh (squeekboard) ist auf diesem Bildschirm
+ziemlich klein. Die App **Tastatur** stellt sie um, vier Stufen von
+„Normal" bis „Sehr gross"; „Gross" entspricht ungefaehr Gboard.
+
+Darunter liegt:
+
+```bash
+sudo /usr/lib/noxis/shell/noxis-tastatur stand
+sudo /usr/lib/noxis/shell/noxis-tastatur groesse 1.45
+sudo /usr/lib/noxis/shell/noxis-tastatur normal
+```
+
+Warum skaliert und kein eigenes Layout: squeekboard legt die Tastengroessen
+in `outlines` ab und rechnet das Layout dann auf die Bildschirmbreite hoch –
+die Hoehe folgt direkt aus diesen Werten. Ein selbst geschriebenes Layout
+muesste jede Taste, jede Ansicht und jedes Sonderzeichen neu auffuehren, und
+ein Tippfehler kostet die Umlaute. Das Strecken der vorhandenen Dateien
+wirkt dagegen auf **alle** Layouts zugleich, auch auf das Terminal-Layout.
+
+Die Originale landen beim ersten Mal in `/var/lib/noxis/squeekboard-orig`
+und werden danach immer von dort gerechnet – mehrfaches Umstellen schaukelt
+sich also nicht auf, und `normal` legt sie einfach zurueck.
+
 ### Mobile Daten ohne ModemManager
 
 ModemManager kommt mit diesem Modem nicht zurecht (siehe unten). Unter

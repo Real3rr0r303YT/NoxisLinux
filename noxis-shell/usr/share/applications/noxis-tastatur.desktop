@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Tastatur
+Name[de]=Tastatur
+Comment=Bildschirmtastatur groesser oder kleiner machen
+Comment[de]=Bildschirmtastatur größer oder kleiner machen
+Exec=/usr/bin/noxis-tastatur
+Icon=input-keyboard-symbolic
+Terminal=false
+Categories=Settings;
+Keywords=Tastatur;Keyboard;Groesse;OSK;

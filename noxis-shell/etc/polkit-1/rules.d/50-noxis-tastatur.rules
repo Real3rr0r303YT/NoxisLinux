@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Noxis Linux – Made by 3rr0r303YT on TikTok
+// https://github.com/Real3rr0r303YT/NoxisLinux
+//
+// Die Tastaturgroesse zu aendern schreibt nur in /usr/share/squeekboard.
+// Wer ohnehin vor dem Geraet sitzt und tippt, soll dafuer kein Passwort
+// eingeben muessen - sonst braucht man die Tastatur, um die Tastatur zu
+// reparieren.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/lib/noxis/shell/noxis-tastatur" &&
+        subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

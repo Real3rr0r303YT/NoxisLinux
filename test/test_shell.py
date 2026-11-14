@@ -336,5 +336,60 @@ check(f"all {len(keys)} greeter texts exist in 7 languages", keys <= set(i18n.T)
 icons = set(__import__("re").findall(r'"([a-z-]+-symbolic)"', src + open(os.path.join(GREETER, "core.py")).read()))
 check(f"{len(icons)} symbolic icons (Adwaita names)", all(i.endswith("-symbolic") for i in icons) and len(icons) >= 10, icons)
 
+print("== Tastaturgroesse (noxis-tastatur)")
+import subprocess as _sp  # noqa: E402
+KB = os.path.join(ROOT, "noxis-shell/usr/lib/noxis/shell/noxis-tastatur")
+check("Werkzeug ausfuehrbar", os.access(KB, os.X_OK))
+check("Syntax", _sp.run(["sh", "-n", KB]).returncode == 0)
+kbd = tempfile.mkdtemp()
+os.makedirs(os.path.join(kbd, "keyboards/terminal"))
+LAY = ('---\noutlines:\n    default: { width: 35.33, height: 46 }\n'
+       '    special: { width: 44, height: 46 }\nviews:\n    base:\n'
+       '        - "q w e r t z u i o p \u00fc"\n')
+for rel in ("keyboards/de.yaml", "keyboards/terminal/de.yaml"):
+    open(os.path.join(kbd, rel), "w").write(LAY)
+env = dict(os.environ, NOXIS_KB_DIR=os.path.join(kbd, "keyboards"),
+           NOXIS_KB_SICHER=os.path.join(kbd, "orig"),
+           NOXIS_KB_MERK=os.path.join(kbd, "faktor"))
+
+
+def kb(*args):
+    return _sp.run(["sh", KB] + list(args), env=env, capture_output=True, text=True)
+
+
+def hoehen(rel="keyboards/de.yaml"):
+    txt = open(os.path.join(kbd, rel)).read()
+    return __import__("re").findall(r"height:\s*([0-9.]+)", txt)
+
+
+kb("groesse", "1.45")
+check("Hoehen gestreckt", hoehen() == ["66.70", "66.70"], hoehen())
+check("Breiten unangetastet", "width: 35.33" in open(os.path.join(kbd, "keyboards/de.yaml")).read())
+check("Umlaut heil", "\u00fc" in open(os.path.join(kbd, "keyboards/de.yaml")).read())
+check("Unterordner auch gestreckt", hoehen("keyboards/terminal/de.yaml") == ["66.70", "66.70"])
+kb("groesse", "1.45")
+check("zweiter Aufruf schaukelt nicht auf", hoehen() == ["66.70", "66.70"], hoehen())
+check("Faktor gemerkt", "1.45" in kb("stand").stdout)
+kb("normal")
+check("zurueckgedreht", hoehen() == ["46", "46"], hoehen())
+check("Faktor zu gross abgewiesen", kb("groesse", "9").returncode != 0)
+check("Faktor keine Zahl abgewiesen", kb("groesse", "abc").returncode != 0)
+check("Groesse unveraendert nach Abweisung", hoehen() == ["46", "46"])
+GUI = os.path.join(ROOT, "noxis-shell/usr/bin/noxis-tastatur")
+check("GUI ausfuehrbar", os.access(GUI, os.X_OK))
+check("GUI uebersetzt", _sp.run([sys.executable, "-m", "py_compile", GUI]).returncode == 0)
+gsrc = open(GUI).read()
+check("GUI ruft das Werkzeug ueber pkexec", '"pkexec", WERKZEUG' in gsrc)
+check("GUI traegt den Credit", "3rr0r303YT" in gsrc)
+check("Desktop-Eintrag vorhanden",
+      os.path.exists(os.path.join(ROOT, "noxis-shell/usr/share/applications/noxis-tastatur.desktop")))
+check("Polkit-Regel nennt genau dieses Werkzeug",
+      "/usr/lib/noxis/shell/noxis-tastatur" in
+      open(os.path.join(ROOT, "noxis-shell/etc/polkit-1/rules.d/50-noxis-tastatur.rules")).read())
+check("diag kann die Dateien schieben",
+      all(f in open(os.path.join(ROOT, "kernel/tools/noxis-diag.sh")).read()
+          for f in ("noxis-shell/usr/bin/noxis-tastatur",
+                    "noxis-shell/usr/lib/noxis/shell/noxis-tastatur")))
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
