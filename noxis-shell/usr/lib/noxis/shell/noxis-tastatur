@@ -8,6 +8,7 @@
 #   noxis-tastatur stand          aktuelle Groesse zeigen
 #   noxis-tastatur groesse 1.45   Tasten um diesen Faktor hoeher
 #   noxis-tastatur normal         Auslieferungszustand
+#   noxis-tastatur anwenden       gemerkte Groesse herstellen (beim Start)
 #
 # Warum skalieren statt eigenes Layout: squeekboard legt Tastengroessen in
 # "outlines" ab und rechnet das Layout dann auf die Bildschirmbreite hoch.
@@ -22,6 +23,7 @@ set -u
 DIR=${NOXIS_KB_DIR:-/usr/share/squeekboard/keyboards}
 SICHER=${NOXIS_KB_SICHER:-/var/lib/noxis/squeekboard-orig}
 MERK=${NOXIS_KB_MERK:-/var/lib/noxis/tastatur-faktor}
+VORGABE=${NOXIS_KB_CONF:-/etc/noxis/tastatur.conf}
 
 c()  { printf '\033[1;36m[tastatur]\033[0m %s\n' "$*"; }
 ok() { printf '\033[1;32m[  ok  ]\033[0m %s\n' "$*"; }
@@ -41,7 +43,17 @@ sichern() {
   ok "Originale gesichert in $SICHER"
 }
 
-faktor_jetzt() { [ -r "$MERK" ] && cat "$MERK" || echo "1.0"; }
+# Was gilt: zuerst die eigene Wahl, sonst die Vorgabe des Abbilds, sonst
+# gross. Eine frisch gebaute Noxis-Installation soll eine brauchbare
+# Tastatur haben, ohne dass man erst eine App dafuer suchen muss.
+faktor_jetzt() {
+  if [ -r "$MERK" ]; then cat "$MERK"; return; fi
+  if [ -r "$VORGABE" ]; then
+    f=$(sed -n 's/^[[:space:]]*FAKTOR[[:space:]]*=[[:space:]]*\([0-9.]*\).*/\1/p' "$VORGABE" | head -n1)
+    [ -n "$f" ] && { echo "$f"; return; }
+  fi
+  echo "1.45"
+}
 
 # squeekboard liest die Layouts beim Start. Beenden reicht: phosh startet es
 # ueber DBus neu, sobald wieder ein Eingabefeld angetippt wird.
@@ -69,6 +81,47 @@ strecken() {
     }' "$2" > "$3"
 }
 
+pruefe_faktor() {
+  case "$1" in
+    *[!0-9.]*|"") no "Faktor muss eine Zahl sein, z.B. 1.45"; return 1 ;;
+  esac
+  awk -v f="$1" 'BEGIN { exit !(f >= 0.8 && f <= 2.5) }' && return 0
+  # Darueber passt die Tastatur nicht mehr auf den Bildschirm und verdeckt
+  # das Eingabefeld, das man gerade fuellen will.
+  no "Faktor muss zwischen 0.8 und 2.5 liegen"
+  return 1
+}
+
+anwenden_faktor() {
+  f="$1"
+  if awk -v f="$f" 'BEGIN { exit !(f > 0.99 && f < 1.01) }'; then
+    zuruecklegen; return $?
+  fi
+  sichern || { no "Sichern fehlgeschlagen"; return 1; }
+  n=0
+  for src in $(find "$SICHER" -name '*.yaml'); do
+    rel="${src#$SICHER/}"
+    ziel="$DIR/$rel"
+    mkdir -p "$(dirname "$ziel")"
+    tmp="$ziel.noxis-neu"
+    if strecken "$f" "$src" "$tmp" && [ -s "$tmp" ]; then
+      mv "$tmp" "$ziel"; n=$((n + 1))
+    else
+      rm -f "$tmp"; c "uebersprungen: $rel"
+    fi
+  done
+  mkdir -p "$(dirname "$MERK")"; printf '%s\n' "$f" > "$MERK"
+  ok "$n Layouts auf Faktor $f gestreckt"
+}
+
+zuruecklegen() {
+  [ -d "$SICHER" ] || { c "nichts geaendert - es gibt nichts zurueckzudrehen"; return 0; }
+  (cd "$SICHER" && find . -name '*.yaml' -exec cp --parents {} "$DIR/" \;) \
+    || { no "Zuruecklegen fehlgeschlagen"; return 1; }
+  mkdir -p "$(dirname "$MERK")"; printf '1.0\n' > "$MERK"
+  ok "Auslieferungszustand wiederhergestellt"
+}
+
 case "${1:-stand}" in
   stand)
     echo "  Layout-Ordner: $DIR"
@@ -81,39 +134,24 @@ case "${1:-stand}" in
   groesse)
     root
     f="${2:-1.45}"
-    # Nur Zahlen zwischen 0.8 und 2.5 - darueber passt die Tastatur nicht
-    # mehr auf den Bildschirm und verdeckt das Eingabefeld.
-    case "$f" in
-      *[!0-9.]*|"") no "Faktor muss eine Zahl sein, z.B. 1.45"; exit 1 ;;
-    esac
-    if ! awk -v f="$f" 'BEGIN { exit !(f >= 0.8 && f <= 2.5) }'; then
-      no "Faktor muss zwischen 0.8 und 2.5 liegen"; exit 1
-    fi
-    sichern || { no "Sichern fehlgeschlagen"; exit 1; }
-    n=0
-    for src in $(find "$SICHER" -name '*.yaml'); do
-      rel="${src#$SICHER/}"
-      ziel="$DIR/$rel"
-      mkdir -p "$(dirname "$ziel")"
-      tmp="$ziel.noxis-neu"
-      if strecken "$f" "$src" "$tmp" && [ -s "$tmp" ]; then
-        mv "$tmp" "$ziel"; n=$((n + 1))
-      else
-        rm -f "$tmp"; c "uebersprungen: $rel"
-      fi
-    done
-    mkdir -p "$(dirname "$MERK")"; printf '%s\n' "$f" > "$MERK"
-    ok "$n Layouts auf Faktor $f gestreckt"
+    pruefe_faktor "$f" || exit 1
+    anwenden_faktor "$f" || exit 1
     neustart
+    ;;
+
+  anwenden)
+    # Beim Start: herstellen, was gemerkt oder vorgegeben ist. Das muss
+    # auch nach einem Update von squeekboard greifen, das die Layouts
+    # wieder durch seine eigenen ersetzt.
+    root
+    f=$(faktor_jetzt)
+    pruefe_faktor "$f" || exit 1
+    anwenden_faktor "$f" || exit 1
     ;;
 
   normal)
     root
-    [ -d "$SICHER" ] || { c "nichts geaendert - es gibt nichts zurueckzudrehen"; exit 0; }
-    (cd "$SICHER" && find . -name '*.yaml' -exec cp --parents {} "$DIR/" \;) \
-      || { no "Zuruecklegen fehlgeschlagen"; exit 1; }
-    printf '1.0\n' > "$MERK"
-    ok "Auslieferungszustand wiederhergestellt"
+    zuruecklegen || exit 1
     neustart
     ;;
 

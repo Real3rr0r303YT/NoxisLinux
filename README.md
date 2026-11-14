@@ -449,8 +449,11 @@ Die polkit-Meldung davor war ein eigener, kleinerer Fehler
 ### Tastatur groesser machen
 
 Die Bildschirmtastatur von Phosh (squeekboard) ist auf diesem Bildschirm
-ziemlich klein. Die App **Tastatur** stellt sie um, vier Stufen von
-„Normal" bis „Sehr gross"; „Gross" entspricht ungefaehr Gboard.
+ziemlich klein. Noxis liefert sie deshalb **ab Werk auf „Gross"** aus, was
+ungefaehr Gboard entspricht – dafuer sorgt `noxis-tastatur.service` beim
+Start. Umstellen geht in der App **Tastatur**, vier Stufen von „Normal" bis
+„Sehr gross"; die eigene Wahl hat Vorrang vor der Vorgabe aus
+`/etc/noxis/tastatur.conf`.
 
 Darunter liegt:
 

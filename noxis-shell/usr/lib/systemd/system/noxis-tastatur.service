@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Noxis Linux – Made by 3rr0r303YT on TikTok
+# https://github.com/Real3rr0r303YT/NoxisLinux
+[Unit]
+Description=Noxis: Groesse der Bildschirmtastatur herstellen
+# Vor der Oberflaeche, damit squeekboard die fertigen Layouts liest.
+Before=display-manager.service phosh.service
+ConditionPathIsDirectory=/usr/share/squeekboard/keyboards
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/noxis/shell/noxis-tastatur anwenden
+# Eine zu kleine Tastatur ist aergerlich, aber kein Grund, den Start
+# anzuhalten.
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target

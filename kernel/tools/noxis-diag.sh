@@ -404,6 +404,8 @@ shell)
       noxis-shell/usr/lib/noxis/shell/noxis-tastatur \
       noxis-shell/usr/bin/noxis-tastatur \
       noxis-shell/usr/share/applications/noxis-tastatur.desktop \
+      noxis-shell/etc/noxis/tastatur.conf \
+      noxis-shell/usr/lib/systemd/system/noxis-tastatur.service \
       noxis-hw/etc/systemd/logind.conf.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/upower.service.d/90-noxis.conf \
       noxis-hw/etc/systemd/system/rmtfs.service.d/90-noxis.conf \
@@ -453,6 +455,14 @@ shell)
     fi
     case "$rel" in *.py|*.css|*.conf|*.rules|*.desktop|*/pam.d/*) adb shell "chmod 644 $dst" >/dev/null 2>&1 ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
   done
+  # Der Tastatur-Dienst muss auch beim gefilterten Lauf aktiv werden,
+  # sonst liegt die Datei da und niemand ruft sie auf.
+  case "${muster:-}" in
+    ""|*tastatur*)
+      adb shell "mkdir -p $M/etc/systemd/system/multi-user.target.wants" >/dev/null 2>&1
+      adb shell "ln -sf /usr/lib/systemd/system/noxis-tastatur.service $M/etc/systemd/system/multi-user.target.wants/noxis-tastatur.service" >/dev/null 2>&1
+      ;;
+  esac
   if [ -z "$muster" ]; then
     # Die Desktop-Sitzung gibt es nicht mehr
     adb shell "rm -f $M/usr/share/wayland-sessions/noxis-desktop.desktop" >/dev/null 2>&1
