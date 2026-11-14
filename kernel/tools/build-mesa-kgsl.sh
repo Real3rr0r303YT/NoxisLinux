@@ -56,8 +56,10 @@ sudo docker run --rm --platform linux/arm64 -v "$OUT:/out" -e REF="$REF" -e STUF
       -Dgallium-drivers=zink \
       -Dvulkan-drivers=freedreno -Dfreedreno-kmds=kgsl \
       -Dllvm=disabled -Dvalgrind=disabled -Dlibunwind=disabled -Dzstd=enabled \
-      >/out/mesa-meson.log 2>&1 || {
+      >/out/mesa-meson-gbm.log 2>&1 || {
         echo "[mesa] mit GBM gescheitert - nochmal ohne"
+        echo "[mesa] Grund (letzte Zeilen von mesa-meson-gbm.log):"
+        grep -iE "error|ERROR|not found|requires|unable" /out/mesa-meson-gbm.log | tail -6 | sed "s/^/  /"
         rm -rf build
         meson setup build --prefix=/opt/mesa-kgsl --buildtype=release \
           -Dplatforms=wayland -Dglx=disabled -Dgbm=disabled -Degl=enabled -Dopengl=true \
