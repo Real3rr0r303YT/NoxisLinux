@@ -377,7 +377,7 @@ shell)
   # dauert eine halbe Stunde; fuer eine geaenderte Python-Datei oder eine
   # Konfigurationsdatei ist das unverhaeltnismaessig.
   need_recovery; mount_root
-  n=0
+  n=0; fehler=0
   for rel in \
       noxis-shell/usr/lib/noxis/dm/noxis-dm \
       noxis-shell/usr/lib/noxis/dm/pam.py \
@@ -422,14 +422,26 @@ shell)
     src="$REPO/$rel"
     [ -f "$src" ] || continue
     dst="$M/${rel#*/}"
-    adb shell "mkdir -p \$(dirname $dst)" >/dev/null 2>&1
-    adb push "$src" "$dst" >/dev/null 2>&1 && { n=$((n + 1)); } || die "push $rel fehlgeschlagen"
+    # mkdirs statt 'mkdir -p': das Recovery legt keine Zwischenebenen an.
+    mkdirs "$(dirname "$dst")" >/dev/null 2>&1
+    if adb push "$src" "$dst" >/dev/null 2>&1 || adb push "$src" "$dst" >/dev/null 2>&1; then
+      n=$((n + 1))
+    else
+      # Eine einzelne Datei soll nicht den ganzen Lauf kippen.
+      c "  uebersprungen: $rel"
+      fehler=$((fehler + 1))
+      continue
+    fi
     case "$rel" in *.py|*.css|*.conf|*.rules|*.desktop|*/pam.d/*) adb shell "chmod 644 $dst" >/dev/null 2>&1 ;; *) adb shell "chmod 755 $dst" >/dev/null 2>&1 ;; esac
   done
   # Die Desktop-Sitzung gibt es nicht mehr
   adb shell "rm -f $M/usr/share/wayland-sessions/noxis-desktop.desktop" >/dev/null 2>&1
   adb shell "ln -sf /usr/lib/systemd/system/noxis-sim-provision.service $M/etc/systemd/system/multi-user.target.wants/noxis-sim-provision.service" >/dev/null 2>&1
   adb shell "sync" >/dev/null 2>&1
+  if [ "$fehler" -gt 0 ]; then
+    c "$fehler Datei(en) nicht uebertragen - nochmal laufen lassen hilft meist"
+  fi
+  [ "$n" -gt 0 ] || die "keine einzige Datei uebertragen - haengt das Kabel?"
   ok "$n Dateien aktualisiert"
   umount_root
   ;;
