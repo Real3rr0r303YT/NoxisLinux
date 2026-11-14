@@ -376,6 +376,29 @@ Datenpfad des Hersteller-Kernels wird unter Android von `netmgrd`
 eingerichtet. Gespraeche brauchen ausserdem den Audiopfad ueber den ADSP;
 `pd-mapper` startet noch nicht („no pd maps available").
 
+### Keine Karte zugewiesen: „sim-missing"
+
+Nach dem Ziehen des Kartenhalters scheitert ModemManager mit:
+
+```
+Couldn't check unlock status: QMI operation failed: GW primary session index unknown
+[device qcom-soc] error initializing: Modem in failed state: sim-missing
+```
+
+Dem Modem fehlt die **primaere GW-Zuweisung**: welche Karte in welchem Platz
+als die genutzte gilt. Unter Android setzt das die Telefonie-Software beim
+Start, unter Noxis macht es sonst niemand, und beim Kartenwechsel geht sie
+verloren. Dann meldet das Modem „keine Karte", obwohl `noxis-qmi-pin status`
+beide Karten sieht.
+
+```bash
+noxis-qmi-pin provision 2     # Platz 2 als primaere Karte
+```
+
+`noxis-sim-provision.service` setzt das beim Start, vor ModemManager, und nur
+wenn die Zuweisung fehlt. Den Platz nimmt es aus `/etc/noxis/sim-slot`, sonst
+den ersten mit einer Karte.
+
 ### SIM-PIN: ModemManager zielt immer auf Kartenplatz 1
 
 Der PIN-Dialog und `mmcli --pin` enden mit
@@ -710,6 +733,7 @@ python3 test/test_guard.py                           # 17  Noxis Guard: settings
 python3 test/test_locale.py                          # 73  7 languages, MCC → time zone, setup, build prompt
 ./test/test_hw.sh                                    # 27  firmware links, radio bring-up, Bluetooth power, units
 dbus-run-session -- python3 test/test_usblock.py     # 8   USB lock over a real D-Bus
+python3 ./test/test_qmi_pin.py                        #     QMI: Kartenstatus, PIN, Zuweisung
 sudo ./test/test_firewall.sh                         #     packet test in network namespaces
 ```
 

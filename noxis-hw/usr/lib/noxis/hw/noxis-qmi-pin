@@ -190,11 +190,19 @@ def main(argv):
     except (IndexError, ValueError):
         print("Kartenstatus hat ein unerwartetes Format - sende nichts")
         return 1
-    show(cards)
+    show(idx, cards)
     if argv[1] == "status":
         return 0
 
-    slot = int(argv[1])
+    provision = argv[1] == "provision"
+    if provision and len(argv) != 3:
+        print(__doc__)
+        return 1
+    try:
+        slot = int(argv[2] if provision else argv[1])
+    except ValueError:
+        print(__doc__)
+        return 1
     if slot not in SESSION_CARD_SLOT or slot > len(cards):
         print("Platz %d gibt es nicht" % slot)
         return 1
