@@ -13,15 +13,20 @@ USIM-Anwendung im gewuenschten Platz und schickt die PIN genau dorthin --
 so wie es Android tut. Ohne AID antwortet das Modem fuer Platz 2 mit
 "AccessDenied" (82).
 
-    noxis-qmi-pin <Knoten> <Port> <Platz> <Datei mit der PIN>
-    noxis-qmi-pin <Knoten> <Port> status          nur den Kartenstatus zeigen
+    noxis-qmi-pin status                    beide Kartenplaetze zeigen
+    noxis-qmi-pin <Platz> <Datei mit der PIN>
+
+Knoten und Port des UIM-Dienstes werden selbst gesucht (qrtr-lookup);
+NOXIS_QMI_NODE und NOXIS_QMI_PORT setzen sie von Hand.
 
 Die PIN wird aus der Datei gelesen und nie ausgegeben. Gesendet wird nur,
 wenn die Karte selbst noch alle drei Versuche meldet.
 Rueckgabe: 0 entsperrt, 12 PIN falsch, 3 nichts zu tun, 1 anderer Fehler.
 """
 import ctypes
+import os
 import socket
+import subprocess
 import struct
 import sys
 
@@ -118,11 +123,31 @@ class Uim:
                 return t
 
 
+def find_uim():
+    """Knoten und Port des UIM-Dienstes (QMI-Dienst 11) suchen."""
+    env = (os.environ.get("NOXIS_QMI_NODE"), os.environ.get("NOXIS_QMI_PORT"))
+    if all(env):
+        return int(env[0]), int(env[1])
+    try:
+        out = subprocess.run(["qrtr-lookup"], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError) as e:
+        raise OSError("qrtr-lookup nicht ausfuehrbar: %s" % e)
+    for line in out.splitlines():
+        f = line.split()
+        if len(f) >= 5 and f[0] == "11" and f[3].isdigit() and f[4].isdigit():
+            return int(f[3]), int(f[4])
+    raise OSError("UIM-Dienst nicht gefunden (laeuft das Modem?)")
+
+
 def main(argv):
-    if len(argv) not in (4, 5):
+    if len(argv) not in (2, 3):
         print(__doc__)
         return 1
-    node, port = int(argv[1]), int(argv[2])
+    try:
+        node, port = find_uim()
+    except OSError as e:
+        print(e)
+        return 1
     try:
         uim = Uim(node, port)
         t = uim.call(header(UIM_GET_CARD_STATUS, b""), UIM_GET_CARD_STATUS)
@@ -139,10 +164,10 @@ def main(argv):
         print("Kartenstatus hat ein unerwartetes Format - sende nichts")
         return 1
     show(cards)
-    if argv[3] == "status":
+    if argv[1] == "status":
         return 0
 
-    slot = int(argv[3])
+    slot = int(argv[1])
     if slot not in SESSION_CARD_SLOT or slot > len(cards):
         print("Platz %d gibt es nicht" % slot)
         return 1
@@ -158,7 +183,7 @@ def main(argv):
     if app["pin1_retries"] < 3:
         print("Platz %d: nur noch %d Versuche - sende NICHT automatisch" % (slot, app["pin1_retries"]))
         return 3
-    with open(argv[4], "rb") as f:
+    with open(argv[2], "rb") as f:
         pin = f.read().strip()
     if not (4 <= len(pin) <= 8 and pin.isdigit()):
         print("PIN-Datei enthaelt keine 4- bis 8-stellige Zahl")

@@ -235,8 +235,7 @@ mv "$d/net.log.new" "$d/net.log"
   echo "--- SIM ---"; for i in 0 1 2 3 4 5; do mmcli -i $i 2>/dev/null | sed 's/[0-9]\{10,\}/<Nummer>/g'; done | head -30
   echo "--- Kartenstatus direkt vom Modem ---"
   if [ -x /usr/lib/noxis/hw/noxis-qmi-pin ]; then
-    set -- $(qrtr-lookup 2>/dev/null | awk '$1==11 {print $4, $5; exit}')
-    [ -n "${2:-}" ] && timeout 30 /usr/lib/noxis/hw/noxis-qmi-pin "$1" "$2" status 2>&1 || echo "  UIM-Dienst nicht gefunden"
+    timeout 40 /usr/lib/noxis/hw/noxis-qmi-pin status 2>&1
   else
     echo "  (Helfer fehlt)"
   fi
@@ -706,11 +705,12 @@ slot=$(echo "$info" | grep '(active)' | grep -o 'slot [0-9]*' | tr -dc 0-9)
 if [ -n "$slot" ] && [ "$slot" != 1 ]; then
   h=/usr/lib/noxis/hw/noxis-qmi-pin
   [ -x "$h" ] || { echo "aktive SIM in Platz $slot, aber $h fehlt - kein Versuch"; exit 0; }
-  set -- $(qrtr-lookup 2>/dev/null | awk '$1==11 {print $4, $5; exit}')
-  [ -n "${2:-}" ] || { echo "UIM-Dienst nicht gefunden (qrtr-lookup) - kein Versuch"; exit 0; }
-  echo "aktive SIM in Platz $slot - sende direkt an den UIM-Dienst (Knoten $1, Port $2)"
-  out=$("$h" "$1" "$2" "$slot" "$f" 2>&1); rc=$?
+  echo "aktive SIM in Platz $slot - sende direkt an den UIM-Dienst"
+  out=$("$h" "$slot" "$f" 2>&1); rc=$?
   echo "rc=$rc $out"
+  if [ "$rc" = 3 ]; then
+    echo "nichts zu tun laut Karte"; exit 0
+  fi
   if [ "$rc" = 12 ]; then
     rm -f "$f"; echo "PIN war FALSCH - gespeicherte PIN geloescht, kein weiterer Versuch"; exit 0
   fi
